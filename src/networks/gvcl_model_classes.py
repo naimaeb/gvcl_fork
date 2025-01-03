@@ -35,7 +35,7 @@ class MultiHeadFiLMCNN(nn.Module):
         self.set_film_gen_type()
         self.global_avg_pool = global_avg_pool
         self.pool_indices = []        
-        print(self.film_type)
+        print("Film type", self.film_type)
 
         self.conv_film_layers = nn.ModuleList([self.conv_film_gen_type(self.num_tasks, conv_size[0]) for conv_size in conv_sizes if conv_size != 'pool'])
         self.fc_film_layers = nn.ModuleList([self.fc_film_gen_type(self.num_tasks, fc_size) for fc_size in fc_sizes])
@@ -89,6 +89,9 @@ class MultiHeadFiLMCNN(nn.Module):
         else:
             for output_dim in output_dims:
                 self.heads.append(MFLinearLayer(last_size, output_dim, prior_var = self.prior_var, init_var = init_vars[layer_index]))
+
+    def get_film_type(self):
+        return self.film_type
 
     def get_task_specific_parameters(self, task_number):
         modules = nn.ModuleList([self.conv_film_layers, self.fc_film_layers])
@@ -360,6 +363,22 @@ class MFLinearLayer(nn.Module):
 
         output = output_mean + (eps * output_std)
         return output
+'''
+def compute_kl(mean, exp_var, prior_mean, prior_exp_var, sum = True, lamb = 1, initial_prior_var = 1):
+    trace_term = torch.exp(exp_var - prior_exp_var)
+    if lamb != 1:
+        mean_term =  (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
+    else:
+        mean_term =  (mean - prior_mean)**2 * torch.exp(-prior_exp_var)
+    det_term = prior_exp_var - exp_var
+    
+    if sum:
+        return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
+    else:
+        return 0.5 * (trace_term + mean_term + det_term - 1)
+''' 
+
+#extend compute kl method to choose renyi between gaussians, renyi between q-gaussians, kl between q gaussians or kl begtween gaussians
 
 def compute_kl(mean, exp_var, prior_mean, prior_exp_var, sum = True, lamb = 1, initial_prior_var = 1):
     trace_term = torch.exp(exp_var - prior_exp_var)

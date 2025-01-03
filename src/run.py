@@ -22,7 +22,7 @@ parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')
 parser.add_argument('--use-best-hyperparams',type=bool,default=True,help='(default=%(default)s)')
 args=parser.parse_args()
 if args.output=='':
-    args.output='../res/'+args.experiment+'_'+args.approach+'_'+str(args.seed)+'.txt'
+    args.output='../res/'+args.experiment+'_'+args.approach+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
 print('='*100)
 print('Arguments =')
 for arg in vars(args):
@@ -85,6 +85,7 @@ elif args.approach=='hat-test':
 elif args.approach=='hat':
     from approaches import hat as approach
 elif 'vcl' in args.approach:
+    print("approach VCL True")
     from approaches import gvcl as approach
 elif args.approach=='joint':
     from approaches import joint as approach
@@ -109,8 +110,10 @@ elif args.experiment == 'mixture':
     elif args.approach=='hat-test':
         from networks import alexnet_hat_test as network
     elif 'vclf' in args.approach:
+        print("using vclf model")
         from networks.gvcl_models import AlexNetFiLM as network
     elif 'vcl' in args.approach:
+        print("using vcl model")
         from networks.gvcl_models import AlexNetNoFiLM as network
     else:
         from networks import alexnet as network
@@ -169,9 +172,13 @@ elif 'smnist' == args.experiment:
     elif args.approach=='ewc2':
         from networks import smnistnet_binary as network
     elif 'vclf' in args.approach:
+        print("using vclf model smnist")
         from networks.gvcl_models import SMNISTNetFiLM as network
+        #print("Film_type", network.get_film_type())
     elif 'vcl' in args.approach:
+        print("using vcl model smnist")
         from networks.gvcl_models import SMNISTNetNoFiLM as network
+       # print("Film_type", network.get_film_type())
     
     else:
         from networks import smnistnet as network

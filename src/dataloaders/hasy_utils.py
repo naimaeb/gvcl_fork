@@ -60,17 +60,21 @@ def load_image_path_set(filepath):
 def get_filenames_for_symbols(symbol_ids, path):
     symbol_id_to_filenames = {}
     for symbol_id in symbol_ids:
+        print("paths", path + '/by_class/' + str(symbol_id))
         symbol_id_to_filenames[symbol_id] = os.listdir(path + '/by_class/' + str(symbol_id))
     return symbol_id_to_filenames
         
 
 def get_train_file_set(seed, train_samples_per_class, test_samples_per_class, val_samples_per_class, symbol_ids, path):
     symbol_id_to_filenames = get_filenames_for_symbols(symbol_ids, path)
+    print("symbol ids" , symbol_id_to_filenames)
     train_file_set = set()
     val_file_set = set()
     test_file_set = set()
     for symbol_id in symbol_id_to_filenames:
+        print(symbol_id)
         np.random.seed(seed)
+        print(symbol_id_to_filenames[symbol_id])
         subset = np.random.choice(symbol_id_to_filenames[symbol_id], train_samples_per_class + val_samples_per_class + test_samples_per_class, replace = False)
         train_file_set.update(subset[:train_samples_per_class])
         val_file_set.update(subset[train_samples_per_class:train_samples_per_class + val_samples_per_class])
@@ -182,6 +186,7 @@ def download_and_extract_hasy(path, replace = False):
     download_url = 'https://zenodo.org/record/259444/files/HASYv2.tar.bz2?download=1'
     target_archive_name = path + "HASYv2.tar.bz2"
     
+    
     if not replace and os.path.exists(path):
         return
 
@@ -189,7 +194,7 @@ def download_and_extract_hasy(path, replace = False):
         print(os.listdir(path + '/../'))
         shutil.rmtree(path)
     os.makedirs(path)
-
+    
     print("downloading")
     # urllib.request.urlretrieve(download_url, target_archive_name, reporthook)
     

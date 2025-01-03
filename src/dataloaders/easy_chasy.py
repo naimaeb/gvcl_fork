@@ -38,6 +38,7 @@ def get(seed = 0, pc_valid = 0.10):
         data[t]['valid']={'x': [],'y': []}
         
         numbers = list(map(int, tasks[t][len('hasy_even'):].split('-')))
+        print(numbers)
         
         data_train, data_test, data_val = get_hasy_datasets_even_split('../dat/HASYv2', train_samples_per_class = 16, test_samples_per_class = test_sizes[t]-8, val_samples_per_class = 8, seed = seed, transform = transform, classes = numbers)
         

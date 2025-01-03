@@ -25,12 +25,14 @@ class Appr(object):
 
         self.lamb=lamb          # Grid search = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2.5, 4]; chosen was 0.75
         self.smax=smax          # Grid search = [25, 50, 100, 200, 400, 800]; chosen was 400
+        
+        
         if len(args.parameter)>=1:
             params=args.parameter.split(',')
             print('Setting parameters to',params)
             self.lamb=float(params[0])
             self.smax=float(params[1])
-
+        
         self.mask_pre=None
         self.mask_back=None
 

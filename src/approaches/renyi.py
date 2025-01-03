@@ -107,14 +107,8 @@ class Appr(object):
         for i in range(0,len(r),self.sbatch):
             if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
             else: b=r[i:]
-            '''
-            deperecated torch.autograd.Variable
             images=torch.autograd.Variable(x[b],volatile=False)
             targets=torch.autograd.Variable(y[b],volatile=False)
-            '''
-            images = x[b]
-            targets = y[b]
-        
 
             task_labels = int(t) * torch.ones_like(targets)
 
@@ -128,7 +122,7 @@ class Appr(object):
             class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
             
             #scale kl term by beta and dataset size
-            kl_term = self.beta * self.model.get_kl(lamb = self.lamb)/(x.shape[0])
+            kl_term = self.beta * self.model.get_kl(lamb = self.lamb)/(x.shape[0]) #add a renyi term in gvcl models
             loss = class_loss + kl_term
 
             #for calculating the accuracy
@@ -163,13 +157,8 @@ class Appr(object):
             for i in range(0,len(r),self.sbatch):
                 if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
                 else: b=r[i:]
-                '''
-                deperecated torch.autograd.Variable
                 images=torch.autograd.Variable(x[b],volatile=True)
                 targets=torch.autograd.Variable(y[b],volatile=True)
-                '''
-                images = x[b]
-                targets = y[b]
 
                 task_labels = int(t) * torch.ones_like(targets)
 
