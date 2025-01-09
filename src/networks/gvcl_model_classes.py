@@ -32,9 +32,6 @@ class MultiHeadFiLMCNN(nn.Module):
         self.output_dims = output_dims
         self.film_type = film_type
 
-        self.reg_type = reg_type #construct the 4 possible regularization cases
-        self.q = q #degree of renyi divergence (lambda = 1 - q)
-
         self.single_head = single_head
         self.prior_var = prior_var
         self.set_film_gen_type()
@@ -171,17 +168,17 @@ class MultiHeadFiLMCNN(nn.Module):
 
         return outputs
 
-    def get_reg(self, lamb = 1):
+    def get_reg(self, lamb = 1, regtype = 'kl_g', q = 2):
         kl = 0
 
         for i, conv_layer in enumerate(self.conv_layers):
-            kl += conv_layer.get_reg(lamb)
+            kl += conv_layer.get_reg(lamb, regtype, q)
         
         for layer in self.fc_layers:
-            kl += layer.get_reg(lamb)
+            kl += layer.get_reg(lamb, regtype, q)
 
         for t, layer in enumerate(self.heads):
-            kl += layer.get_reg(lamb)
+            kl += layer.get_reg(lamb, regtype, q)
 
         return kl
     '''
@@ -307,7 +304,7 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
 
         return W_kl + b_kl
 
-    def get_reg(self, lamb, reg_type, q):
+    def get_reg(self, lamb, regtype, q):
         '''
         Function that computes either of the possible 4 regularization types;
         1. KL between two Gaussians
@@ -318,16 +315,16 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         Returns:
         divergence value (torch.float)
         '''
-        if self.regtype == 'kl_g':
+        if regtype == 'kl_g':
             kl_function = compute_kl_g
-        elif self.regtype == 're_g':
+        elif regtype == 're_g':
             kl_function = compute_re_g
-        elif self.regtype == "kl_qg":
+        elif regtype == "kl_qg":
             kl_function = compute_kl_qg
-        elif self.regtype == 're_qg':
+        elif regtype == "re_qg":
             kl_function = compute_re_qg
         else:
-            raise ValueError(f"Unknown regularization type: {self.regtype}")
+            raise ValueError(f"Unknown regularization type: {regtype}")
 
         W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
         b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
@@ -408,7 +405,7 @@ class MFLinearLayer(nn.Module):
         b_kl = compute_kl_g(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
         return W_kl + b_kl
 
-    def get_reg(self, lamb, reg_type, q):
+    def get_reg(self, lamb, regtype, q):
         '''
         Function that computes either of the possible 4 regularization types;
         1. KL between two Gaussians
@@ -430,8 +427,8 @@ class MFLinearLayer(nn.Module):
         else:
             raise ValueError(f"Unknown regularization type: {regtype}")
 
-        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
     
     def get_kl_true(self, lamb):
@@ -459,7 +456,6 @@ def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True
     det_term = prior_exp_var - exp_var
     
     if sum:
-        print("trace term:", trace_term.shape)
         return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
     else:
         return 0.5 * (trace_term + mean_term + det_term - 1)

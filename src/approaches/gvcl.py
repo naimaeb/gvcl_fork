@@ -135,7 +135,7 @@ class Appr(object):
             class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
             
             #scale kl term by beta and dataset size
-            kl_term = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q)/(x.shape[0])
+            kl_term = self.beta * self.model.get_reg(lamb = self.lamb, regtype = self.reg_type, q = self.q)/(x.shape[0])
             loss = class_loss + kl_term
 
 
