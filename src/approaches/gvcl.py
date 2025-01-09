@@ -4,13 +4,26 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 
+from approaches import ApprBase
 import utils
 
-class Appr(object):
+class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model,nepochs=100,sbatch=64,lr=0.05,lr_min=1e-4,lr_factor=3,lr_patience=5,clipgrad=100,lamb = 1, beta = 1, use_film = False,args=None):
-        self.model=model
+    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05,lr_min=1e-4,lr_factor=3,lr_patience=5,clipgrad=100,lamb = 1, beta = 1, args=None, **kwargs):
+        """
+        Extra flags accepted: 
+            - optimizer (str) \in ['sgd','adam']
+            - weight_decay (float)
+            - momentum (floa)
+            - scheduler_type (str) \in ['step','cosine_anneal']
+            - step_time (int)
+            - discount_factor (float)
+            - total_steps (int)
+        """
+
+        super.__init__(model, device=device)
+
         self.model_old=None
         self.fisher=None
 
@@ -22,9 +35,6 @@ class Appr(object):
         self.lr_patience=lr_patience
         self.clipgrad=clipgrad
 
-        self.ce=torch.nn.CrossEntropyLoss()
-        self.optimizer=self._get_optimizer()
-
         self.beta = beta
         self.lamb = lamb
         if len(args.parameter)>=1:
@@ -34,13 +44,23 @@ class Appr(object):
             
         self.equalize_epochs = True
         self.exp = args.experiment
+    
+        self.extra_arguments=dict(kwargs) # collecting all the extra flags into this dictionary (note: it may be empty)
+        # example of extra flags: all optimizer hyperparameters or lr scheduller hyperparameters 
+        self.lr_scheduling=kwargs.get("lr_schedule",False)
 
-        return
+        self.ce=torch.nn.CrossEntropyLoss()
+        self.optimizer=self._get_optimizer()
+        if self.lr_scheduling: self.setup_scheduler(**self.extra_arguments)
+
+
+
 
     def _get_optimizer(self, parameters = None, lr=None):
         if lr is None: lr=self.lr
         if parameters is None: parameters = self.model.parameters()
-        return torch.optim.Adam(parameters, lr = self.lr)
+        opt = super._get_optimizer(parameters=parameters, lr=lr, **self.extra_arguments)
+        return opt
     
     #todo: implement get optimizer with the diagonal fisher or block version of it
 
@@ -87,7 +107,7 @@ class Appr(object):
             print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f}  total_loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0)/xtrain.size(0),class_loss, kl_loss, total_loss,100*train_acc))
 
-        return
+
 
     def train_epoch(self,t,x,y):
         self.model.train()
@@ -107,11 +127,7 @@ class Appr(object):
         for i in range(0,len(r),self.sbatch):
             if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
             else: b=r[i:]
-            '''
-            deperecated torch.autograd.Variable
-            images=torch.autograd.Variable(x[b],volatile=False)
-            targets=torch.autograd.Variable(y[b],volatile=False)
-            '''
+            
             images = x[b]
             targets = y[b]
         
@@ -142,6 +158,7 @@ class Appr(object):
             loss.backward()
             torch.nn.utils.clip_grad_norm(self.model.parameters(),self.clipgrad)
             self.optimizer.step()
+            if self.lr_scheduling: self.scheduler_step()
 
             epoch_total_loss += loss.detach().data.item()
             epoch_class_loss += class_loss.detach().data.item()
