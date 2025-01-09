@@ -9,7 +9,7 @@ import utils
 class Appr(object):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model,nepochs=100,sbatch=64,lr=0.05,lr_min=1e-4,lr_factor=3,lr_patience=5,clipgrad=100,lamb = 1, beta = 1, use_film = False,args=None):
+    def __init__(self,model,nepochs=100,sbatch=64,lr=0.05,lr_min=1e-4,lr_factor=3,lr_patience=5,clipgrad=100,lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, use_film = False,args=None):
         self.model=model
         self.model_old=None
         self.fisher=None
@@ -27,11 +27,17 @@ class Appr(object):
 
         self.beta = beta
         self.lamb = lamb
+        print("lambda", self.lamb)
+        print("beta", self.beta)
         if len(args.parameter)>=1:
             params=args.parameter.split(',')
             self.beta= float(params[0])
-            self.lamb= float(params[1])
-            
+            self.lamb= float(params[1]) 
+
+        #terms relating to the type of regularizer that will be used
+        self.reg_type = reg_type #construct the 4 possible regularization cases
+        self.q = q #degree of renyi divergence (lambda = 1 - q)
+
         self.equalize_epochs = True
         self.exp = args.experiment
 
@@ -84,7 +90,8 @@ class Appr(object):
             clock1=time.time()
 
             clock2=time.time()
-            print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f}  total_loss={:.3f}, acc={:5.1f}% |'.format(
+            #include wandb logging for these terms
+            print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f} total_loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0)/xtrain.size(0),class_loss, kl_loss, total_loss,100*train_acc))
 
         return
@@ -128,8 +135,9 @@ class Appr(object):
             class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
             
             #scale kl term by beta and dataset size
-            kl_term = self.beta * self.model.get_kl(lamb = self.lamb)/(x.shape[0])
+            kl_term = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q)/(x.shape[0])
             loss = class_loss + kl_term
+
 
             #for calculating the accuracy
             probs = F.softmax(output, dim=2).mean(dim = 0)

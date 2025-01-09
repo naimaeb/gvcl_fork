@@ -11,7 +11,7 @@ class BabyNetFiLM:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((1,32,32), [(16,3), 'pool', (32,3), 'pool'], [100], heads, film_type = 'point')
+            super().__init__((1,32,32), [(16,3), 'pool', (32,3), 'pool'], [100], heads, film_type = 'scale')
 
 class ZenkeNetNoFiLM:
     class Net(MultiHeadFiLMCNN):
@@ -23,7 +23,7 @@ class ZenkeNetFiLM:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((3,32,32), [(32,3), (32,3), 'pool', (64,3), (64,3), 'pool'], [512], heads, film_type = 'point')
+            super().__init__((3,32,32), [(32,3), (32,3), 'pool', (64,3), (64,3), 'pool'], [512], heads, film_type = 'scale')
 
 class SMNISTNetNoFiLM:
     class Net(MultiHeadFiLMCNN):
@@ -47,4 +47,4 @@ class AlexNetFiLM:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((3,32,32), [(64, 4, 0), 'pool', (128, 3, 0), 'pool', (256, 2, 0), 'pool'], [2048,2048], heads, film_type = 'point', prior_var = 0.01)
+            super().__init__((3,32,32), [(64, 4, 0), 'pool', (128, 3, 0), 'pool', (256, 2, 0), 'pool'], [2048,2048], heads, film_type = 'scale', prior_var = 0.01)

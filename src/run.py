@@ -14,6 +14,7 @@ parser.add_argument('--experiment',default='',type=str,required=True,choices=['m
 parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                             'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
                                                                             'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
+parser.add_argument('--regularizer', default='',type=str,required=False,choices=['kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
 parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
 parser.add_argument('--nepochs',default=-1,type=int,required=False,help='(default=%(default)d)')
 parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
@@ -211,8 +212,10 @@ if len(args.parameter) == 0:
     print("using default hyperparams of {}".format(best_param))
 
 appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args)
+print("approach.beta", appr.beta)
+print("approach.lamb", appr.lamb)
 
-print(appr.criterion)
+print("criterion", appr.criterion)
 utils.print_optimizer_config(appr.optimizer)
 print('-'*100)
 

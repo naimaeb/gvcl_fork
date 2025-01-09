@@ -1,4 +1,5 @@
 import torch
+import torch.distributions as dist
 from torch import nn
 from torch.nn import functional as F
 from torch.nn.parameter import Parameter
@@ -30,6 +31,10 @@ class MultiHeadFiLMCNN(nn.Module):
         self.num_tasks = len(output_dims)
         self.output_dims = output_dims
         self.film_type = film_type
+
+        self.reg_type = reg_type #construct the 4 possible regularization cases
+        self.q = q #degree of renyi divergence (lambda = 1 - q)
+
         self.single_head = single_head
         self.prior_var = prior_var
         self.set_film_gen_type()
@@ -166,20 +171,34 @@ class MultiHeadFiLMCNN(nn.Module):
 
         return outputs
 
-    def get_kl(self, lamb = 1):
+    def get_reg(self, lamb = 1):
         kl = 0
 
         for i, conv_layer in enumerate(self.conv_layers):
-            kl += conv_layer.get_kl(lamb)
+            kl += conv_layer.get_reg(lamb)
         
         for layer in self.fc_layers:
-            kl += layer.get_kl(lamb)
+            kl += layer.get_reg(lamb)
 
         for t, layer in enumerate(self.heads):
-            kl += layer.get_kl(lamb)
+            kl += layer.get_reg(lamb)
 
         return kl
-    
+    '''
+    def get_kl_true(self, lamb = 1):
+        kl = 0
+
+        for i, conv_layer in enumerate(self.conv_layers):
+            kl += conv_layer.get_kl_true(lamb)
+        
+        for layer in self.fc_layers:
+            kl += layer.get_kl_true(lamb)
+
+        for t, layer in enumerate(self.heads):
+            kl += layer.get_kl_true(lamb)
+
+        return kl
+    ''' 
     def add_task_body_params(self, updated_tasks):
         for layer in self.fc_layers:
             layer.add_new_task()
@@ -282,8 +301,41 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         self.bias.data = torch.empty_like(self.bias).uniform_(-bound, bound).data
 
     def get_kl(self, lamb):
-        W_kl = compute_kl(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-        b_kl = compute_kl(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+
+        W_kl = compute_kl_g(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_g(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+
+        return W_kl + b_kl
+
+    def get_reg(self, lamb, reg_type, q):
+        '''
+        Function that computes either of the possible 4 regularization types;
+        1. KL between two Gaussians
+        2. Renyi of degree q between two Gaussians
+        3. KL between two q-gaussians (of order q)
+        4. Renyi between two q-gaussians (of order q)
+
+        Returns:
+        divergence value (torch.float)
+        '''
+        if self.regtype == 'kl_g':
+            kl_function = compute_kl_g
+        elif self.regtype == 're_g':
+            kl_function = compute_re_g
+        elif self.regtype == "kl_qg":
+            kl_function = compute_kl_qg
+        elif self.regtype == 're_qg':
+            kl_function = compute_re_qg
+        else:
+            raise ValueError(f"Unknown regularization type: {self.regtype}")
+
+        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        return W_kl + b_kl
+    
+    def get_kl_true(self, lamb):
+        W_kl = compute_kl_true(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_true(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
 
         return W_kl + b_kl
 
@@ -352,9 +404,39 @@ class MFLinearLayer(nn.Module):
             self.b_mean.data = torch.empty_like(self.b_mean).uniform_(-bound, bound).data
 
     def get_kl(self, lamb):
-        W_kl = compute_kl(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-        b_kl = compute_kl(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        W_kl = compute_kl_g(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_g(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
         return W_kl + b_kl
+
+    def get_reg(self, lamb, reg_type, q):
+        '''
+        Function that computes either of the possible 4 regularization types;
+        1. KL between two Gaussians
+        2. Renyi of degree q between two Gaussians
+        3. KL between two q-gaussians (of order q)
+        4. Renyi between two q-gaussians (of order q)
+
+        Returns:
+        divergence value (torch.float)
+        '''
+        if regtype == 'kl_g':
+            kl_function = compute_kl_g
+        elif regtype == 're_g':
+            kl_function = compute_re_g
+        elif regtype == "kl_qg":
+            kl_function = compute_kl_qg
+        elif regtype == "re_qg":
+            kl_function = compute_re_qg
+        else:
+            raise ValueError(f"Unknown regularization type: {regtype}")
+
+        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        return W_kl + b_kl
+    
+    def get_kl_true(self, lamb):
+        W_kl = compute_kl_true(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_true(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
 
     def forward(self, x):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
@@ -363,8 +445,12 @@ class MFLinearLayer(nn.Module):
 
         output = output_mean + (eps * output_std)
         return output
-'''
-def compute_kl(mean, exp_var, prior_mean, prior_exp_var, sum = True, lamb = 1, initial_prior_var = 1):
+
+def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+    #print("mean shape:", mean.shape)
+    #print("exp_var shape:", exp_var.shape)
+    #print("prior_mean shape:", prior_mean.shape)
+    #print("prior_exp_var shape:", prior_exp_var.shape)
     trace_term = torch.exp(exp_var - prior_exp_var)
     if lamb != 1:
         mean_term =  (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
@@ -373,22 +459,73 @@ def compute_kl(mean, exp_var, prior_mean, prior_exp_var, sum = True, lamb = 1, i
     det_term = prior_exp_var - exp_var
     
     if sum:
+        print("trace term:", trace_term.shape)
         return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
     else:
         return 0.5 * (trace_term + mean_term + det_term - 1)
-''' 
+
 
 #extend compute kl method to choose renyi between gaussians, renyi between q-gaussians, kl between q gaussians or kl begtween gaussians
 
-def compute_kl(mean, exp_var, prior_mean, prior_exp_var, sum = True, lamb = 1, initial_prior_var = 1):
-    trace_term = torch.exp(exp_var - prior_exp_var)
-    if lamb != 1:
-        mean_term =  (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
-    else:
-        mean_term =  (mean - prior_mean)**2 * torch.exp(-prior_exp_var)
-    det_term = prior_exp_var - exp_var
+def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+    """
+    Compute the Rényi divergence between univariate Gaussian posterior and prior distributions.
     
+    Args:
+        mean (torch.Tensor): Posterior mean (shape: [n]).
+        log_var (torch.Tensor): Log-variance of the posterior (shape: [n]).
+        prior_mean (torch.Tensor): Prior mean (shape: [n]).
+        log_prior_var (torch.Tensor): Log-variance of the prior (shape: [n]).
+        alpha (float): Order of the Rényi divergence (alpha > 0, alpha != 1).
+    
+    Returns:
+        torch.Tensor: Rényi divergence for each element in the input tensor (shape: [n]).
+    """
+    # Compute posterior variance and prior variance from log-variances
+    var = torch.exp(log_var)  # Posterior variance
+    prior_var = torch.exp(log_prior_var)  # Prior variance
+
+    # Compute the mixed variance (Σ_α)^*
+    mixed_var = alpha * prior_var + (1 - alpha) * var
+
+    # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
+    mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
+
+    # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
+    log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
+
     if sum:
-        return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
+        return 0.5 * torch.sum(mahalanobis_term - 0.5 / (alpha - 1) * log_det_term)
+    # Combine terms to compute Rényi divergence
     else:
-        return 0.5 * (trace_term + mean_term + det_term - 1)
+        return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)
+
+def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+    '''
+    KL divergence between two q-Gaussians. To be implemented
+    '''
+    return 1
+
+def compute_re_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+    '''
+    Renyi divergence between two q-Gaussians. To be implemented
+    '''
+    return 1
+    
+def compute_kl_true(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+
+    '''
+    Computes the Dkl(approximate distribution || prior distribution) between two Gaussian distributions
+
+    Note that the variances are log variances
+    '''
+
+    #currently passing the variance of each individual weight, pass into a covariance form
+    cov_matrix = torch.diag_embed(torch.exp(exp_var))
+    prior_cov_matrix = torch.diag_embed(torch.exp(prior_exp_var))
+
+
+    dist1 = dist.MultivariateNormal(mean, cov_matrix)
+    dist2 = dist.MultivariateNormal(prior_mean, prior_cov_matrix)
+    kl_loss = torch.distributions.kl.kl_divergence(dist1, dist2)
+    return kl_loss
