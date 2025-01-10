@@ -14,6 +14,7 @@ parser.add_argument('--experiment',default='',type=str,required=True,choices=['m
 parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                             'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
                                                                             'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
+parser.add_argument('--regularizer', default='',type=str,required=False,choices=['kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
 parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
 parser.add_argument('--nepochs',default=-1,type=int,required=False,help='(default=%(default)d)')
 parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
@@ -22,7 +23,7 @@ parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')
 parser.add_argument('--use-best-hyperparams',type=bool,default=True,help='(default=%(default)s)')
 args=parser.parse_args()
 if args.output=='':
-    args.output='../res/'+args.experiment+'_'+args.approach+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
+    args.output='../res/'+args.experiment+'_'+args.approach+'_'+args.regularizer+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
 print('='*100)
 print('Arguments =')
 for arg in vars(args):
@@ -212,9 +213,16 @@ if len(args.parameter) == 0:
     args.parameter = best_param
     print("using default hyperparams of {}".format(best_param))
 
-appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args)
+#set the regularizer if performing any vcl related approach
+if 'vcl' in args.approach:
+    print("regularization happening")
+    appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args, reg_type = args.regularizer)
+else:
+    appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args)
+print("approach.beta", appr.beta)
+print("approach.lamb", appr.lamb)
 
-print(appr.criterion)
+print("criterion", appr.criterion)
 utils.print_optimizer_config(appr.optimizer)
 print('-'*100)
 
