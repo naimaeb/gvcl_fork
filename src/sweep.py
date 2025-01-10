@@ -1,16 +1,23 @@
 import sys,os,argparse,time
 import numpy as np
 import torch
+import wandb
 from best_hyperparams import get_best_params
 
 import utils
+
+wandb_setup = {
+    "project-name":'curvy-cl',
+    "entity":'nagiu'
+}
 
 tstart=time.time()
 
 root_path = './' #change to match running directory
 # Arguments
 parser=argparse.ArgumentParser(description='xxx')
-parser.add_argument('--seed',type=int,default=0,help='(default=%(default)d)')
+parser.add_argument('--sweep_name',type=str,help='sweep-id')
+parser.add_argument('--seed',type=int,default=0)
 parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist'],help='(default=%(default)s)')
 parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                             'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
@@ -188,126 +195,163 @@ elif 'smnist' == args.experiment:
 
 ########################################################################################################################
 
-# Load
-print('Load data...')
-default_path = root_path+"dat/" #pick this otherwise
-data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path)
-if args.ntasks != -1:
-    taskcla = taskcla[:args.ntasks]
-print('Input size =',inputsize,'\nTask info =',taskcla)
+wandb_config = {
+    "name": args.sweep_name,
+    "method": "bayes",
+    "metric": {"goal": "minimize", "name": "avg_accuracy"},
+    "early_terminate":{
+        "type": "hyperband",
+        "min_iter": 25,
+        "eta":2
+    },
+    'parameters': {
+        'seed': {
+            'value': args.seed
+        },
+        'ntasks': {
+            'value': args.ntasks
+        },
+        'approach': {
+            'value': args.approach
+        },
+        'experiment': {
+            'value': args.experiment
+        },
+        'nepochs': {
+            'value': 10
+        },
+        'lr': {'values': [1e-3, 1e-2, 1e-1, 1],},
+        'lamb': {"max": 1.5, "min": 1e-3},
+        'beta': {"max": 1.0, "min": 1e-3},
+        'reg_type': {
+            'value': 'kl_g' 
+        },
+        'weight_decay':{"max": 1e-3, "min": 1e-6},
+        'momentum': {'values': [0.9, 0.99, 1]},
+        'scheduler_type': {
+            'value': 'cosine_anneal'
+        },
+        'lr_schedule': {'value': True},
+    }
+}
 
-# Inits
-print('Inits...')
-net=network.Net(inputsize,taskcla).cuda()
-utils.print_model_report(net)
+def training_and_testing(config=None):
 
-#Set hyperparameters
-best_param, best_lr, best_epochs = get_best_params(args.approach, args.experiment)
-if args.nepochs == -1:
-    args.nepochs = best_epochs
-    print("using default # epochs of {}".format(best_epochs))
-if args.lr == -1:
-    args.lr = best_lr
-    print("using default lr of {}".format(best_lr))
-if len(args.parameter) == 0:
-    args.parameter = best_param
-    print("using default hyperparams of {}".format(best_param))
+    wandb.init(config=config)
+    config = wandb.config
 
-#set the regularizer if performing any vcl related approach
-if 'vcl' in args.approach:
-    print("regularization happening")
-    appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args, reg_type = args.regularizer)
-else:
-    appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args)
-print("approach.beta", appr.beta)
-print("approach.lamb", appr.lamb)
+    # Load
+    print('Load data...')
+    default_path = root_path+"dat/" #pick this otherwise
+    data,taskcla,inputsize=dataloader.get(seed=config.seed, path=default_path)
+    if config.ntasks != -1:
+        taskcla = taskcla[:config.ntasks]
+    print('Input size =',inputsize,'\nTask info =',taskcla)
 
-print("criterion", appr.criterion)
-utils.print_optimizer_config(appr.optimizer)
-print('-'*100)
+    # Inits
+    print('Inits...')
+    net=network.Net(inputsize,taskcla).cuda()
+    utils.print_model_report(net)
 
-# Loop taskki,l
-acc=np.zeros((len(taskcla),len(taskcla)),dtype=np.float32)
-lss=np.zeros((len(taskcla),len(taskcla)),dtype=np.float32)
-for t,ncla in taskcla:
-    print('*'*100)
-    print('Task {:2d} ({:s})'.format(t,data[t]['name']))
-    print('*'*100)
+    #Set hyperparameters
+    config.total_steps = config.nepochs * len(data[0]['train']['y'])
+    print(f"Total number of steps: {config.total_steps}")
 
-    if args.approach == 'joint':
-        # Get data. We do not put it to GPU
-        if t==0:
-            xtrain=data[t]['train']['x']
-            ytrain=data[t]['train']['y']
-            xvalid=data[t]['valid']['x']
-            yvalid=data[t]['valid']['y']
-            task_t=t*torch.ones(xtrain.size(0)).int()
-            task_v=t*torch.ones(xvalid.size(0)).int()
-            task=[task_t,task_v]
+
+    #set the regularizer if performing any vcl related approach
+    if 'vcl' in config.approach:
+        print("regularization happening")
+    
+    appr=approach.Appr(net, **config)
+    
+    # this will print a lot of stuff - turn it off to have less printing
+    if True:
+        print("Approach parameters:")
+        for attr in dir(appr):
+            if not attr.startswith('__'):
+                print(f"approach.{attr} = {getattr(appr, attr)}")
+        utils.print_optimizer_config(appr.optimizer)
+        print('-'*100)
+
+
+    # Loop taskki,l
+    acc=np.zeros((len(taskcla),len(taskcla)),dtype=np.float32)
+    lss=np.zeros((len(taskcla),len(taskcla)),dtype=np.float32)
+    step=0
+    for t,ncla in taskcla:
+        print('*'*100)
+        print('Task {:2d} ({:s})'.format(t,data[t]['name']))
+        print('*'*100)
+
+        if args.approach == 'joint':
+            # Get data. We do not put it to GPU
+            if t==0:
+                xtrain=data[t]['train']['x']
+                ytrain=data[t]['train']['y']
+                xvalid=data[t]['valid']['x']
+                yvalid=data[t]['valid']['y']
+                task_t=t*torch.ones(xtrain.size(0)).int()
+                task_v=t*torch.ones(xvalid.size(0)).int()
+                task=[task_t,task_v]
+            else:
+                xtrain=torch.cat((xtrain,data[t]['train']['x']))
+                ytrain=torch.cat((ytrain,data[t]['train']['y']))
+                xvalid=torch.cat((xvalid,data[t]['valid']['x']))
+                yvalid=torch.cat((yvalid,data[t]['valid']['y']))
+                task_t=torch.cat((task_t,t*torch.ones(data[t]['train']['y'].size(0)).int()))
+                task_v=torch.cat((task_v,t*torch.ones(data[t]['valid']['y'].size(0)).int()))
+                task=[task_t,task_v]
         else:
-            xtrain=torch.cat((xtrain,data[t]['train']['x']))
-            ytrain=torch.cat((ytrain,data[t]['train']['y']))
-            xvalid=torch.cat((xvalid,data[t]['valid']['x']))
-            yvalid=torch.cat((yvalid,data[t]['valid']['y']))
-            task_t=torch.cat((task_t,t*torch.ones(data[t]['train']['y'].size(0)).int()))
-            task_v=torch.cat((task_v,t*torch.ones(data[t]['valid']['y'].size(0)).int()))
-            task=[task_t,task_v]
-    else:
-        # Get data
-        xtrain=data[t]['train']['x'].cuda()
-        ytrain=data[t]['train']['y'].cuda()
-        xvalid=data[t]['valid']['x'].cuda()
-        yvalid=data[t]['valid']['y'].cuda()
-        task=t
+            # Get data
+            xtrain=data[t]['train']['x'].cuda()
+            ytrain=data[t]['train']['y'].cuda()
+            xvalid=data[t]['valid']['x'].cuda()
+            yvalid=data[t]['valid']['y'].cuda()
+            task=t
 
-    # Train
-    appr.train(task,xtrain,ytrain,xvalid,yvalid)
-    print('-'*100)
+        # Train
+        step=appr.train(task,xtrain,ytrain,xvalid,yvalid,step)
+        print('-'*100)
 
-    # Test
-    for u in range(t+1):
-        xtest=data[u]['test']['x'].cuda()
-        ytest=data[u]['test']['y'].cuda()
-        if args.approach == 'hat':
-            test_loss,test_acc=appr.eval(u,xtest,ytest,save_preds = True, dset = args.experiment)
-        else:
-            test_loss,test_acc=appr.eval(u,xtest,ytest,)
-        print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.1f}% <<<'.format(u,data[u]['name'],test_loss,100*test_acc))
-        acc[t,u]=test_acc
-        lss[t,u]=test_loss
+        # Test
+        for u in range(t+1):
+            xtest=data[u]['test']['x'].cuda()
+            ytest=data[u]['test']['y'].cuda()
+            if args.approach == 'hat':
+                test_loss,test_acc=appr.eval(u,xtest,ytest,save_preds = True, dset = args.experiment)
+            else:
+                test_loss,test_acc=appr.eval(u,xtest,ytest,)
+            print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.1f}% <<<'.format(u,data[u]['name'],test_loss,100*test_acc))
+            acc[t,u]=test_acc 
+            lss[t,u]=test_loss
+            wandb.log({
+                'epoch': step,
+                f"test_loss_task_{u}": test_loss,
+                f"test_acc_task_{u}": test_acc
+            })
+        avg_accuracy = np.mean(acc[t, :])
+        print(f'Average accuracy: {avg_accuracy * 100:.1f}%')
+        wandb.log({"epoch":step, "avg_accuracy": avg_accuracy})
 
-    # Save
-    print('Save at '+args.output)
-    np.savetxt(args.output,acc,'%.4f')
+    # Done
+    print('*'*100)
+    print('Accuracies =')
+    for i in range(acc.shape[0]):
+        print('\t',end='')
+        for j in range(acc.shape[1]):
+            print('{:5.1f}% '.format(100*acc[i,j]),end='')
+        print()
+    print('*'*100)
+    print('Done!')
+    print('[Elapsed time = {:.1f} h]'.format((time.time()-tstart)/(60*60)))
 
-# Done
-print('*'*100)
-print('Accuracies =')
-for i in range(acc.shape[0]):
-    print('\t',end='')
-    for j in range(acc.shape[1]):
-        print('{:5.1f}% '.format(100*acc[i,j]),end='')
-    print()
-print('*'*100)
-print('Done!')
 
-print('[Elapsed time = {:.1f} h]'.format((time.time()-tstart)/(60*60)))
+########################################################################################################################
 
-if hasattr(appr, 'logs'):
-    if appr.logs is not None:
-        #save task names
-        from copy import deepcopy
-        appr.logs['task_name'] = {}
-        appr.logs['test_acc'] = {}
-        appr.logs['test_loss'] = {}
-        for t,ncla in taskcla:
-            appr.logs['task_name'][t] = deepcopy(data[t]['name'])
-            appr.logs['test_acc'][t]  = deepcopy(acc[t,:])
-            appr.logs['test_loss'][t]  = deepcopy(lss[t,:])
-        #pickle
-        import gzip
-        import pickle
-        with gzip.open(os.path.join(appr.logpath), 'wb') as output:
-            pickle.dump(appr.logs, output, pickle.HIGHEST_PROTOCOL)
+
+# wandb sweep training
+sweep_id = wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+wandb.agent(sweep_id, function=training_and_testing, count=20, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+
 
 ########################################################################################################################

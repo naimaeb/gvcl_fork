@@ -4,6 +4,7 @@ dat/
 res/
 old/
 tmp/
+wandb/
 src/.idea/
 src/__pycache__/
 # Extensions

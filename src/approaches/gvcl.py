@@ -6,11 +6,12 @@ import torch.nn.functional as F
 
 from approaches import ApprBase
 import utils
+import wandb
 
 class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05,lr_min=1e-4,lr_factor=3,lr_patience=5,clipgrad=100,lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -30,26 +31,23 @@ class Appr(ApprBase):
         self.nepochs=nepochs
         self.sbatch=sbatch
         self.lr=lr
-        self.lr_min=lr_min
-        self.lr_factor=lr_factor
-        self.lr_patience=lr_patience
         self.clipgrad=clipgrad
 
         self.beta = beta
         self.lamb = lamb
-        print("lambda", self.lamb)
-        print("beta", self.beta)
-        if len(args.parameter)>=1:
-            params=args.parameter.split(',')
-            self.beta= float(params[0])
-            self.lamb= float(params[1]) 
+        # print("lambda", self.lamb)
+        # print("beta", self.beta)
+        # if len(args.parameter)>=1:
+        #     params=args.parameter.split(',')
+        #     self.beta= float(params[0])
+        #     self.lamb= float(params[1]) 
 
         #terms relating to the type of regularizer that will be used
         self.reg_type = reg_type #construct the 4 possible regularization cases
         self.q = q #degree of renyi divergence (lambda = 1 - q)
 
         self.equalize_epochs = True
-        self.exp = args.experiment
+        self.exp = kwargs.get("experiment", "")
     
         self.extra_arguments=dict(kwargs) # collecting all the extra flags into this dictionary (note: it may be empty)
         # example of extra flags: all optimizer hyperparameters or lr scheduller hyperparameters 
@@ -70,11 +68,12 @@ class Appr(ApprBase):
     
     #todo: implement get optimizer with the diagonal fisher or block version of it
 
-    def train(self,t,xtrain,ytrain,xvalid,yvalid):
+    def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
         lr=self.lr
 
         parameters = self.model.get_task_specific_parameters(t)
         self.optimizer=self._get_optimizer(parameters, lr)
+        if self.lr_scheduling: self.setup_scheduler(**self.extra_arguments)
 
         if 'chasy' not in self.exp:
             #join train and validation sets because gvcl/vcl does not use early stopping
@@ -111,8 +110,18 @@ class Appr(ApprBase):
 
             clock2=time.time()
             #include wandb logging for these terms
+            wandb.log({
+                'epoch': step+1,
+                'class_loss': class_loss,
+                'kl_loss': kl_loss,
+                'total_loss': total_loss,
+                'train_acc': train_acc,
+                'lr': self.optimizer.param_groups[0]['lr']
+            })
+            step=step+1
             print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f} total_loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0)/xtrain.size(0),class_loss, kl_loss, total_loss,100*train_acc))
+        return step
 
 
 
@@ -166,7 +175,8 @@ class Appr(ApprBase):
             loss.backward()
             torch.nn.utils.clip_grad_norm(self.model.parameters(),self.clipgrad)
             self.optimizer.step()
-            if self.lr_scheduling: self.scheduler_step()
+            if self.lr_scheduling: 
+                self.scheduler_step()
 
             epoch_total_loss += loss.detach().data.item()
             epoch_class_loss += class_loss.detach().data.item()

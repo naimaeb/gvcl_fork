@@ -42,9 +42,9 @@ class ApprBase(object):
         if sched_type=="step":
             self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=step_time, gamma=gamma)
         elif sched_type=="cosine_anneal":
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=total_steps, T_mult=1, eta_min=10e-5)
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=total_steps, T_mult=1, eta_min=1e-5)
         else: raise NotImplementedError
-        self.warmup_scheduler = warmup.LinearWarmup(self.optimizer, warmup_period=100)   
+        self.warmup_scheduler = warmup.LinearWarmup(self.optimizer, warmup_period=10)   
 
     def scheduler_step(self):
         with self.warmup_scheduler.dampening(): 

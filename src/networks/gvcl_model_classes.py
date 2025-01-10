@@ -141,7 +141,8 @@ class MultiHeadFiLMCNN(nn.Module):
         
         for i, conv_layer in enumerate(self.conv_layers):
             x = conv_layer(x)
-            x = self.conv_film_layers[i](x, task_labels, num_samples)
+            if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
+                x = self.conv_film_layers[i](x, task_labels, num_samples)
             
             x = F.relu(x)
             if i in self.pool_indices:
@@ -154,7 +155,8 @@ class MultiHeadFiLMCNN(nn.Module):
         
         for i, layer in enumerate(self.fc_layers):
             x = layer(x)
-            x = self.fc_film_layers[i](x, task_labels, num_samples)
+            if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
+                x = self.fc_film_layers[i](x, task_labels, num_samples)
             x = F.relu(x)
             
         self.pre_head = x
@@ -344,7 +346,6 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         output = output_mean + torch.sqrt(output_var + 1e-9) * eps
 
         return output
-
 
 class MFLinearLayer(nn.Module):
     def __init__(self, dim_in, dim_out, prior_var = 1, init_var = -7):

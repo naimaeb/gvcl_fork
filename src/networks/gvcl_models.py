@@ -29,7 +29,7 @@ class SMNISTNetNoFiLM:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((1,28,28), [], [256,256], heads)
+            super().__init__((1,28,28), [], [256,256], heads, film_type='none')
 
 class SMNISTNetFiLM:
     class Net(MultiHeadFiLMCNN):
