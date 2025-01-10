@@ -188,7 +188,9 @@ elif 'smnist' == args.experiment:
 
 # Load
 print('Load data...')
-data,taskcla,inputsize=dataloader.get(seed=args.seed)
+giulia_path = "../continual-rl/datasets/" 
+default_path = "./dat/" #pick this otherwise
+data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path)
 if args.ntasks != -1:
     taskcla = taskcla[:args.ntasks]
 print('Input size =',inputsize,'\nTask info =',taskcla)

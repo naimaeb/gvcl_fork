@@ -6,17 +6,20 @@ from sklearn.utils import shuffle
 
 ########################################################################################################################
 
-def get(seed=0,fixed_order=False,pc_valid=0.1):
+def get(seed=0,fixed_order=False,pc_valid=0.1, path=None):
     data={}
     taskcla=[]
     size=[1,28,28]
+
+    if path is None: path = '../dat/'
+    print(path)
 
     # MNIST
     mean=(0.1307,)
     std=(0.3081,)
     dat={}
-    dat['train']=datasets.MNIST('../dat/',train=True,download=True,transform=transforms.Compose([transforms.Resize(28), transforms.ToTensor(),transforms.Normalize(mean,std)]))
-    dat['test']=datasets.MNIST('../dat/',train=False,download=True,transform=transforms.Compose([transforms.Resize(28), transforms.ToTensor(),transforms.Normalize(mean,std)]))
+    dat['train']=datasets.MNIST(path,train=True,download=True,transform=transforms.Compose([transforms.Resize(28), transforms.ToTensor(),transforms.Normalize(mean,std)]))
+    dat['test']=datasets.MNIST(path,train=False,download=True,transform=transforms.Compose([transforms.Resize(28), transforms.ToTensor(),transforms.Normalize(mean,std)]))
     
     for t in range(5):
         data[t]={}
@@ -75,7 +78,8 @@ def get(seed=0,fixed_order=False,pc_valid=0.1):
         data[t]['train']['x']=data[t]['train']['x'][itrain].clone()
         data[t]['train']['y']=data[t]['train']['y'][itrain].clone()
         
-        print("SLDKJFLSDJL")
+        #print("SLDKJFLSDJL") #? 
+        print(f"Task {t} loaded")
 
     # Others
     n=0

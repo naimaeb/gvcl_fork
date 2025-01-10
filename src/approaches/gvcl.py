@@ -22,7 +22,7 @@ class Appr(ApprBase):
             - total_steps (int)
         """
 
-        super.__init__(model, device=device)
+        super().__init__(model, device=device)
 
         self.model_old=None
         self.fisher=None
@@ -59,7 +59,7 @@ class Appr(ApprBase):
     def _get_optimizer(self, parameters = None, lr=None):
         if lr is None: lr=self.lr
         if parameters is None: parameters = self.model.parameters()
-        opt = super._get_optimizer(parameters=parameters, lr=lr, **self.extra_arguments)
+        opt = super()._get_optimizer(parameters=parameters, lr=lr, **self.extra_arguments)
         return opt
     
     #todo: implement get optimizer with the diagonal fisher or block version of it
