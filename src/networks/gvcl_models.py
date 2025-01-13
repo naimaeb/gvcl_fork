@@ -17,7 +17,7 @@ class ZenkeNetNoFiLM:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((3,32,32), [(32,3), (32,3), 'pool', (64,3), (64,3), 'pool'], [512], heads)
+            super().__init__((3,32,32), [(32,3), (32,3), 'pool', (64,3), (64,3), 'pool'], [512], heads, film_type='none') 
 
 class ZenkeNetFiLM:
     class Net(MultiHeadFiLMCNN):

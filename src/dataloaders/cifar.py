@@ -5,21 +5,22 @@ import utils
 from torchvision import datasets,transforms
 from sklearn.utils import shuffle
 
-def get(seed=0,pc_valid=0.10):
+def get(seed=0,pc_valid=0.10,path='../dat/'):
     data={}
     taskcla=[]
     size=[3,32,32]
+    download_path=path+'binary_cifar/'
 
-    if not os.path.isdir('../dat/binary_cifar/'):
-        os.makedirs('../dat/binary_cifar')
+    if not os.path.isdir(download_path):
+        os.makedirs(download_path)
 
         mean=[x/255 for x in [125.3,123.0,113.9]]
         std=[x/255 for x in [63.0,62.1,66.7]]
 
         # CIFAR10
         dat={}
-        dat['train']=datasets.CIFAR10('../dat/',train=True,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
-        dat['test']=datasets.CIFAR10('../dat/',train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
+        dat['train']=datasets.CIFAR10(path,train=True,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
+        dat['test']=datasets.CIFAR10(path,train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
         for n in range(1):
             data[n]={}
             data[n]['name']='cifar10'
@@ -36,8 +37,8 @@ def get(seed=0,pc_valid=0.10):
 
         # CIFAR100
         dat={}
-        dat['train']=datasets.CIFAR100('../dat/',train=True,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
-        dat['test']=datasets.CIFAR100('../dat/',train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
+        dat['train']=datasets.CIFAR100(path,train=True,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
+        dat['test']=datasets.CIFAR100(path,train=False,download=True,transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
         for n in range(1,6):
             data[n]={}
             data[n]['name']='cifar100'
@@ -58,8 +59,8 @@ def get(seed=0,pc_valid=0.10):
             for s in ['train','test']:
                 data[t][s]['x']=torch.stack(data[t][s]['x']).view(-1,size[0],size[1],size[2])
                 data[t][s]['y']=torch.LongTensor(np.array(data[t][s]['y'],dtype=int)).view(-1)
-                torch.save(data[t][s]['x'], os.path.join(os.path.expanduser('../dat/binary_cifar'),'data'+str(t)+s+'x.bin'))
-                torch.save(data[t][s]['y'], os.path.join(os.path.expanduser('../dat/binary_cifar'),'data'+str(t)+s+'y.bin'))
+                torch.save(data[t][s]['x'], os.path.join(os.path.expanduser(download_path),'data'+str(t)+s+'x.bin'))
+                torch.save(data[t][s]['y'], os.path.join(os.path.expanduser(download_path),'data'+str(t)+s+'y.bin'))
 
     # Load binary files
     data={}
@@ -70,8 +71,8 @@ def get(seed=0,pc_valid=0.10):
         data[i] = dict.fromkeys(['name','ncla','train','test'])
         for s in ['train','test']:
             data[i][s]={'x':[],'y':[]}
-            data[i][s]['x']=torch.load(os.path.join(os.path.expanduser('../dat/binary_cifar'),'data'+str(ids[i])+s+'x.bin'))
-            data[i][s]['y']=torch.load(os.path.join(os.path.expanduser('../dat/binary_cifar'),'data'+str(ids[i])+s+'y.bin'))
+            data[i][s]['x']=torch.load(os.path.join(os.path.expanduser(download_path),'data'+str(ids[i])+s+'x.bin'))
+            data[i][s]['y']=torch.load(os.path.join(os.path.expanduser(download_path),'data'+str(ids[i])+s+'y.bin'))
         data[i]['ncla']=len(np.unique(data[i]['train']['y'].numpy()))
 #         if data[i]['ncla']==2:
 #             data[i]['name']='cifar10-'+str(ids[i])

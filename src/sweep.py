@@ -198,7 +198,7 @@ elif 'smnist' == args.experiment:
 wandb_config = {
     "name": args.sweep_name,
     "method": "bayes",
-    "metric": {"goal": "minimize", "name": "avg_accuracy"},
+    "metric": {"goal": "maximize", "name": "avg_accuracy"},
     "early_terminate":{
         "type": "hyperband",
         "min_iter": 25,
@@ -218,13 +218,13 @@ wandb_config = {
             'value': args.experiment
         },
         'nepochs': {
-            'value': 10
+            'value': args.nepochs
         },
         'lr': {'values': [1e-3, 1e-2, 1e-1, 1],},
         'lamb': {"max": 1.5, "min": 1e-3},
         'beta': {"max": 1.0, "min": 1e-3},
         'reg_type': {
-            'value': 'kl_g' 
+            'value': 're_g' 
         },
         'weight_decay':{"max": 1e-3, "min": 1e-6},
         'momentum': {'values': [0.9, 0.99, 1]},
@@ -355,3 +355,6 @@ wandb.agent(sweep_id, function=training_and_testing, count=20, project=wandb_set
 
 
 ########################################################################################################################
+
+# example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 're_g_gvcl-nofilm-max' --experiment smnist --approach gvcl --seed 14 --regularizer re_g
+# example command: CUDA_VISIBLE_DEVICES=2 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-cifar' --nepochs 10 --experiment cifar --approach gvcl --seed 14 --regularizer kl_g

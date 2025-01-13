@@ -4,6 +4,12 @@ import torch
 from best_hyperparams import get_best_params
 
 import utils
+import wandb
+
+wandb_setup = {
+    "project-name":'curvy-cl',
+    "entity":'nagiu'
+}
 
 tstart=time.time()
 
@@ -213,12 +219,16 @@ if len(args.parameter) == 0:
     args.parameter = best_param
     print("using default hyperparams of {}".format(best_param))
 
+
+wandb.init(config=args, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+
+
 #set the regularizer if performing any vcl related approach
 if 'vcl' in args.approach:
     print("regularization happening")
-    appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args, reg_type = args.regularizer)
-else:
-    appr=approach.Appr(net,nepochs=args.nepochs,lr=args.lr,args=args)
+
+appr=approach.Appr(net,**vars(args))
+
 print("approach.beta", appr.beta)
 print("approach.lamb", appr.lamb)
 
@@ -229,6 +239,8 @@ print('-'*100)
 # Loop taskki,l
 acc=np.zeros((len(taskcla),len(taskcla)),dtype=np.float32)
 lss=np.zeros((len(taskcla),len(taskcla)),dtype=np.float32)
+step=0
+
 for t,ncla in taskcla:
     print('*'*100)
     print('Task {:2d} ({:s})'.format(t,data[t]['name']))
@@ -261,7 +273,7 @@ for t,ncla in taskcla:
         task=t
 
     # Train
-    appr.train(task,xtrain,ytrain,xvalid,yvalid)
+    step = appr.train(task,xtrain,ytrain,xvalid,yvalid, step)
     print('-'*100)
 
     # Test
@@ -275,6 +287,15 @@ for t,ncla in taskcla:
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.1f}% <<<'.format(u,data[u]['name'],test_loss,100*test_acc))
         acc[t,u]=test_acc
         lss[t,u]=test_loss
+        wandb.log({
+                'epoch': step,
+                f"test_loss_task_{u}": test_loss,
+                f"test_acc_task_{u}": test_acc
+            })
+    avg_accuracy = np.mean(acc[t, :])
+    print(f'Average accuracy: {avg_accuracy * 100:.1f}%')
+    wandb.log({"epoch":step, "avg_accuracy": avg_accuracy})
+
 
     # Save
     print('Save at '+args.output)
@@ -290,7 +311,6 @@ for i in range(acc.shape[0]):
     print()
 print('*'*100)
 print('Done!')
-
 print('[Elapsed time = {:.1f} h]'.format((time.time()-tstart)/(60*60)))
 
 if hasattr(appr, 'logs'):
@@ -311,3 +331,5 @@ if hasattr(appr, 'logs'):
             pickle.dump(appr.logs, output, pickle.HIGHEST_PROTOCOL)
 
 ########################################################################################################################
+
+# example command: CUDA_VISIBLE_DEVICES=2 python ./src/run.py --nepochs 10 --experiment cifar --approach gvcl --seed 14 --regularizer kl_g
