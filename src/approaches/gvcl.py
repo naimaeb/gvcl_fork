@@ -11,7 +11,7 @@ import wandb
 class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, train_samples = 10 , args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -45,6 +45,7 @@ class Appr(ApprBase):
         #terms relating to the type of regularizer that will be used
         self.reg_type = reg_type #construct the 4 possible regularization cases
         self.q = q #degree of renyi divergence (lambda = 1 - q)
+        self.train_samples = train_samples
 
         self.equalize_epochs = True
         self.exp = kwargs.get("experiment", "")
@@ -132,7 +133,7 @@ class Appr(ApprBase):
         np.random.shuffle(r)
         r=torch.LongTensor(r).cuda()
 
-        train_samples = 10
+        train_samples = self.train_samples
         
         epoch_class_loss = 0
         epoch_kl_loss = 0

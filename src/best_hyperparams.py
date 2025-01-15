@@ -142,3 +142,31 @@ def get_best_params(approach, experiment):
             lr = 1e-3
 
     return param, lr, epochs
+
+
+sweep_params = {
+    "cifar":{
+        "gvcl": {
+            "kl_g": {
+                "lamb": 1.0457809053446263,
+                "beta": 0.07767762991817502,
+                "lr": 0.01,
+                "nepochs": 20,
+                "momentum": 0.0,
+                "weight_decay": 0.00003490464887614895,
+            },
+        }
+    },
+    "smnist":{
+        "gvcl": {
+            "kl_g": {
+                "lamb": 0.6705196787912139,
+                "beta": 0.8936853030382772,
+                "lr": 0.1,
+                "nepochs": 10,
+                "momentum": 0.9,
+                "weight_decay": 0.00000829351474322814,
+            },
+        }
+    },
+}
