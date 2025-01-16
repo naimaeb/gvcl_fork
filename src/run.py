@@ -31,8 +31,9 @@ parser.add_argument('--weight_decay',type=float,default=0.0001,help='(default=%(
 parser.add_argument('--beta',type=float,default=0.1,help='(default=%(default)f)')
 parser.add_argument('--lamb',type=float,default=5000,help='(default=%(default)f)')
 parser.add_argument('--root_path',type=str,default='./',help='(default=%(default)s)')
-parser.add_argument('--use-best-hyperparams',type=bool,default=True,help='(default=%(default)s)')
-parser.add_argument('--train_samples', type=int, help='Number of samples from the posterior')
+parser.add_argument('--use-best-hyperparams',type=bool,default=False,help='(default=%(default)s)')
+parser.add_argument('--use-sweep',type=bool,default=False,help='(default=%(default)s)')
+parser.add_argument('--train_samples', type=int, default=10, help='Number of samples from the posterior')
 args=parser.parse_args()
 if args.output=='':
     args.output=args.root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.regularizer+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
@@ -213,21 +214,26 @@ net=network.Net(inputsize,taskcla).cuda()
 utils.print_model_report(net)
 
 #Set hyperparameters
-best_param, best_lr, best_epochs = get_best_params(args.approach, args.experiment)
-try: 
-    sweep_params[args.experiment][args.approach][args.reg_type]
-except Exception: 
-    print("No sweep hyperparameters found for this approach and experiment. Resorting to default.")
-    pass 
-if args.nepochs == -1:
+if args.use_best_hyperparams:   
+    best_param, best_lr, best_epochs = get_best_params(args.approach, args.experiment)
     args.nepochs = best_epochs
     print("using default # epochs of {}".format(best_epochs))
-if args.lr == -1:
     args.lr = best_lr
     print("using default lr of {}".format(best_lr))
-if len(args.parameter) == 0:
     args.parameter = best_param
     print("using default hyperparams of {}".format(best_param))
+
+if args.use_sweep: 
+    try: 
+        sweep_best = sweep_params[args.experiment][args.approach][args.regularizer]
+        use_sweep = True
+        for key, value in sweep_best.items():
+            setattr(args, key, value)
+            print(f"Setting {key} to {value}")
+    except Exception as e: 
+        print(e)
+        print("No sweep hyperparameters found for this approach and experiment. Resorting to default.")
+        pass 
 
 
 wandb.init(config=args, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
@@ -342,4 +348,4 @@ if hasattr(appr, 'logs'):
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=4 python ./src/run.py --nepochs 30 --beta 0.07767762991817502 --lamb 1.0457809053446263 --lr 0.01 --momentum 0 --weight_decay 0.00003490464887614895 --experiment cifar --approach gvcl --seed 14 --regularizer re_g
+# example command: CUDA_VISIBLE_DEVICES=0 python ./src/run.py --use-sweep True --experiment cifar --approach gvcl --seed 42 --regularizer kl_g
