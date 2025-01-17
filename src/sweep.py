@@ -29,6 +29,7 @@ parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%
 parser.add_argument('--parameter',type=str,default='',help='(default=%(default)s)')
 parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')
 parser.add_argument('--use-best-hyperparams',type=bool,default=True,help='(default=%(default)s)')
+parser.add_argument('--train_samples', type=int, default=10, help='Number of samples from the posterior')
 args=parser.parse_args()
 if args.output=='':
     args.output=root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.regularizer+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
@@ -208,6 +209,9 @@ wandb_config = {
         'seed': {
             'value': args.seed
         },
+        'train_samples': {
+            'value': args.train_samples
+        },
         'ntasks': {
             'value': args.ntasks
         },
@@ -220,19 +224,19 @@ wandb_config = {
         'nepochs': {
             'value': args.nepochs
         },
-        'lr': {'values': [1e-3, 1e-2, 1e-1, 1],},
-        'lamb': {"max": 1.5, "min": 1e-3},
-        'beta': {"max": 1.0, "min": 1e-3},
-        'q': {"max": 3.0-1e-4, "min": 1.0+1e-4},
         'reg_type': {
-            'value': 're_g' 
+            'value': args.regularizer 
         },
-        'weight_decay':{"max": 1e-3, "min": 1e-6},
-        'momentum': {'values': [0, 0.9, 0.99, 1]},
         'scheduler_type': {
             'value': 'cosine_anneal'
         },
         'lr_schedule': {'value': True},
+        'lr': {'values': [1e-3, 1e-2, 1e-1, 1],},
+        'lamb': {"max": 1e4, "min": 1e-3},
+        'beta': {"max": 1.0, "min": 1e-3},
+        'q': {"max": 3.0-1e-4, "min": 1.0+1e-4},
+        'weight_decay':{"max": 1e-3, "min": 1e-6},
+        'momentum': {'values': [0, 0.9, 0.99, 1]},
     }
 }
 
@@ -351,11 +355,11 @@ def training_and_testing(config=None):
 
 
 # wandb sweep training
-sweep_id = "9okbmn2s"#wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+sweep_id = "ki542u71"#wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 wandb.agent(sweep_id, function=training_and_testing, count=20, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 're_g_gvcl-nofilm-max' --nepochs 10 --experiment smnist --approach gvcl --seed 14 --regularizer re_g
-# example command: CUDA_VISIBLE_DEVICES=0 python ./src/sweep.py --sweep_name 're_g_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --approach gvcl --seed 14 --regularizer re_g
+# example command: CUDA_VISIBLE_DEVICES=7 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer re_g
+# example command: CUDA_VISIBLE_DEVICES=4 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer kl_g
