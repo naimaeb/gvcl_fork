@@ -14,11 +14,14 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.parameter import Parameter
 from torch import distributions
+from torch.distributions.studentT import StudentT
 
 import math
 import numpy as np
 from torch.nn import init
 from functools import partial
+
+from math import gamma as gamma_function
 
 device = 'cuda:0'
 
@@ -170,7 +173,7 @@ class MultiHeadFiLMCNN(nn.Module):
 
         return outputs
 
-    def get_reg(self, lamb = 1, regtype = 'kl_g', q = 2):
+    def get_reg(self, lamb, regtype, q):
         kl = 0
 
         for i, conv_layer in enumerate(self.conv_layers):
@@ -323,8 +326,8 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             kl_function = compute_re_g
         elif regtype == "kl_qg":
             kl_function = compute_kl_qg
-        elif regtype == "re_qg":
-            kl_function = compute_re_qg
+        elif regtype == "t_st":
+            kl_function = compute_t_st
         else:
             raise ValueError(f"Unknown regularization type: {regtype}")
 
@@ -338,11 +341,15 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
 
         return W_kl + b_kl
 
-    def forward(self, input):
+    def forward(self, input, regtype, q):
         output_mean =  self.conv2d_forward(input, self.weight, self.bias)
         output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
 
-        eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+        if regtype == 't_st':
+            dof = 2/(q-1) - output_mean.shape[0] #re-think this (what shape it should be)
+            eps = StudentT(df = dof, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+        else:
+            eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
         output = output_mean + torch.sqrt(output_var + 1e-9) * eps
 
         return output
@@ -423,8 +430,8 @@ class MFLinearLayer(nn.Module):
             kl_function = compute_re_g
         elif regtype == "kl_qg":
             kl_function = compute_kl_qg
-        elif regtype == "re_qg":
-            kl_function = compute_re_qg
+        elif regtype == "t_st":
+            kl_function = compute_t_st
         else:
             raise ValueError(f"Unknown regularization type: {regtype}")
 
@@ -436,10 +443,15 @@ class MFLinearLayer(nn.Module):
         W_kl = compute_kl_true(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
         b_kl = compute_kl_true(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
 
-    def forward(self, x):
+    def forward(self, x,regtype, q):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
-        eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+        
+        if regtype == 't_st':
+            dof = 2/(q-1) - output_mean.shape[0] #re-think this (what shape it should be)
+            eps = StudentT(df = dof, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+        else:
+            eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
 
         output = output_mean + (eps * output_std)
         return output
@@ -497,6 +509,106 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True
     else:
         return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)
 
+def compute_c_gamma(v, k):
+    """
+    Compute the normalization constant C_gamma according to the formula:
+    d_Ψ = (Γ((v+k)/2) / ((πv)^(k/2)Γ(v/2)))^(-2/(v+k))
+    
+    Parameters:
+    -----------
+    v : float
+        Degrees of freedom parameter
+    k : int
+        Dimension of the distribution
+    dim : int
+        Dimension of the space
+        
+    Returns:
+    --------
+    float
+        The computed C_gamma value
+    """
+    # Compute the numerator: Γ((v+k)/2)
+    numerator = gamma_function((v + k) / 2)
+    
+    # Compute the denominator parts
+    pi_term = (torch.pi * v) ** (k/2)
+    gamma_term = gamma_function(v/2)
+    
+    # Combine the terms inside the parentheses
+    base = numerator / (pi_term * gamma_term)
+    
+    # Raise to the power -2/(v+k)
+    c_gamma = base ** (-2/(v+k))
+    
+    return c_gamma
+
+def compute_t_st(mu1, mu2, sigma1_diag, sigma2_diag, q, k=None):
+    """
+    Calculate the t-divergence between two probability distributions.
+    
+    Parameters:
+    -----------
+    mu1 : torch.Tensor
+        Mean vector of the first distribution
+    mu2 : torch.Tensor
+        Mean vector of the second distribution
+    sigma1_diag : torch.Tensor
+        Diagonal elements of the first covariance matrix
+    sigma2_diag : torch.Tensor
+        Diagonal elements of the second covariance matrix
+    gamma : float
+        Gamma parameter
+    v : float
+        v parameter used in calculating K
+    k : int, optional
+        Dimension parameter for C_gamma computation. If None, uses length of mu1
+        
+    Returns:
+    --------
+    torch.Tensor
+        The t-divergence value
+    """
+    # Convert scalars to tensors
+    #gamma = torch.tensor(gamma, dtype=mu1.dtype, device=mu1.device)
+    #v = torch.tensor(v, dtype=mu1.dtype, device=mu1.device)
+    
+    # If k is not provided, use the dimension of the input
+    if k is None:
+        k = mu1.shape[0]
+    
+    v = 2/(q-1) - k
+    
+    # Compute C_gamma using the new formula
+    c_gamma = compute_c_gamma(v, k)/(1-q)
+    
+    # Calculate determinant terms with power 1/(v+k) = -gamma/2
+    det1_term = torch.pow(torch.prod(sigma1_diag), 1/(v+k))
+    det2_term = torch.pow(torch.prod(sigma2_diag),1/(v+k))
+    
+    # Calculate K2 = (1/v) * sigma2^(-1)
+    K2_diag = (1/v) / sigma2_diag
+    
+    # Term 1: (C_gamma/gamma)|Σ₁|^(-γ/2)(1 + 1/v)
+    term1 = det1_term * (1 + 1/v)
+    
+    # Term 2: 2|Σ₂|^(-γ/2)μ₁ᵀK₂μ₂
+    term2 = 2 * det2_term * torch.sum(K2_diag * mu1 * mu2)
+    
+    # Term 3: -|Σ₂|^(-γ/2)Tr(K₂Σ₁)
+    term3 = -det2_term * torch.sum(K2_diag * sigma1_diag)
+    
+    # Term 4: -|Σ₂|^(-γ/2)μ₁ᵀK₂μ₁
+    term4 = -det2_term * torch.sum(K2_diag * mu1 * mu1)
+    
+    # Term 5: -|Σ₂|^(-γ/2)(μ₂ᵀK₂μ₂ + 1)
+    term5 = -det2_term * (torch.sum(K2_diag * mu2 * mu2) + 1)
+    
+    # Combine all terms
+    divergence = c_gamma*(term1 + term2 + term3 + term4 + term5)
+    
+    return divergence
+
 def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
     '''
     KL divergence between two q-Gaussians. To be implemented
@@ -505,8 +617,9 @@ def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = Tru
 
 def compute_re_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
     '''
-    Renyi divergence between two q-Gaussians. To be implemented
+    t-Divergence between two Student-t distributions with diagonal covariances
     '''
+    
     return 1
     
 def compute_kl_true(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):

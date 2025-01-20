@@ -20,7 +20,8 @@ parser.add_argument('--experiment',default='',type=str,required=True,choices=['m
 parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                             'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
                                                                             'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
-parser.add_argument('--regularizer', default='',type=str,required=False,choices=['kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
+parser.add_argument('--regularizer', default='',type=str,required=False,choices=['kl_g','re_g','kl_qg','t_st'],help='(default=%(default)s)') 
+parser.add_argument('--q', default = 1.01, type=float, required=False)
 parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
 parser.add_argument('--nepochs',default=-1,type=int,required=False,help='(default=%(default)d)')
 parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
@@ -28,15 +29,15 @@ parser.add_argument('--parameter',type=str,default='',help='(default=%(default)s
 parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')
 parser.add_argument('--momentum',type=float,default=0.9,help='(default=%(default)f)')
 parser.add_argument('--weight_decay',type=float,default=0.0001,help='(default=%(default)f)')
-parser.add_argument('--beta',type=float,default=0.1,help='(default=%(default)f)')
-parser.add_argument('--lamb',type=float,default=5000,help='(default=%(default)f)')
+parser.add_argument('--beta',type=float,default=1,help='(default=%(default)f)')
+parser.add_argument('--lamb',type=float,default=1,help='(default=%(default)f)')
 parser.add_argument('--root_path',type=str,default='./',help='(default=%(default)s)')
 parser.add_argument('--use-best-hyperparams',type=bool,default=False,help='(default=%(default)s)')
 parser.add_argument('--use-sweep',type=bool,default=False,help='(default=%(default)s)')
 parser.add_argument('--train_samples', type=int, default=10, help='Number of samples from the posterior')
 args=parser.parse_args()
 if args.output=='':
-    args.output=args.root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.regularizer+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
+    args.output=os.path.join(args.root_path, 'res', args.experiment, args.approach, args.regularizer, f'{args.experiment}_{args.approach}_{args.regularizer}_{args.q}_{str(args.seed)}.txt')
 print('='*100)
 print('Arguments =')
 for arg in vars(args):
@@ -247,6 +248,7 @@ appr=approach.Appr(net,**vars(args))
 
 print("approach.beta", appr.beta)
 print("approach.lamb", appr.lamb)
+print("approach.q", appr.q)
 
 print("criterion", appr.criterion)
 utils.print_optimizer_config(appr.optimizer)
