@@ -490,13 +490,15 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True
     """
     # Compute posterior variance and prior variance from log-variances
     var = torch.exp(log_var)  # Posterior variance
-    prior_var = torch.exp(log_prior_var)  # Prior variance
+    prior_var = torch.exp(log_prior_var)  # Prior variance 
+    # to check
+    prior_var_lamda = (lamb * torch.clamp(torch.exp(-log_prior_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
 
     # Compute the mixed variance (Σ_α)^*
     mixed_var = alpha * prior_var + (1 - alpha) * var
 
     # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
-    mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
+    mahalanobis_term = alpha * (mean - prior_mean) ** 2 / ( alpha * prior_var_lamda + (1 - alpha) * var)
 
     # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
     log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
