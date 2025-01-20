@@ -341,13 +341,12 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
 
         return W_kl + b_kl
 
-    def forward(self, input, regtype, q):
+    def forward(self, input, regtype, nu):
         output_mean =  self.conv2d_forward(input, self.weight, self.bias)
         output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
 
         if regtype == 't_st':
-            dof = 2/(q-1) - output_mean.shape[0] #re-think this (what shape it should be)
-            eps = StudentT(df = dof, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+            eps = StudentT(df = nu, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
         else:
             eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
         output = output_mean + torch.sqrt(output_var + 1e-9) * eps
@@ -443,13 +442,12 @@ class MFLinearLayer(nn.Module):
         W_kl = compute_kl_true(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
         b_kl = compute_kl_true(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
 
-    def forward(self, x,regtype, q):
+    def forward(self, x,regtype, nu):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
         
         if regtype == 't_st':
-            dof = 2/(q-1) - output_mean.shape[0] #re-think this (what shape it should be)
-            eps = StudentT(df = dof, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+            eps = StudentT(df = nu, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
         else:
             eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
 
@@ -509,103 +507,105 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True
     else:
         return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)
 
-def compute_c_gamma(v, k):
+def compute_psi_vectorized(v, log_sigma):
     """
-    Compute the normalization constant C_gamma according to the formula:
-    d_Ψ = (Γ((v+k)/2) / ((πv)^(k/2)Γ(v/2)))^(-2/(v+k))
+    Compute Ψ for the d-dimensional case using degrees of freedom v.
+    Works with log-space sigma.
     
     Parameters:
     -----------
     v : float
-        Degrees of freedom parameter
-    k : int
-        Dimension of the distribution
-    dim : int
-        Dimension of the space
-        
-    Returns:
-    --------
-    float
-        The computed C_gamma value
-    """
-    # Compute the numerator: Γ((v+k)/2)
-    numerator = gamma_function((v + k) / 2)
-    
-    # Compute the denominator parts
-    pi_term = (torch.pi * v) ** (k/2)
-    gamma_term = gamma_function(v/2)
-    
-    # Combine the terms inside the parentheses
-    base = numerator / (pi_term * gamma_term)
-    
-    # Raise to the power -2/(v+k)
-    c_gamma = base ** (-2/(v+k))
-    
-    return c_gamma
-
-def compute_t_st(mu1, mu2, sigma1_diag, sigma2_diag, q, k=None):
-    """
-    Calculate the t-divergence between two probability distributions.
-    
-    Parameters:
-    -----------
-    mu1 : torch.Tensor
-        Mean vector of the first distribution
-    mu2 : torch.Tensor
-        Mean vector of the second distribution
-    sigma1_diag : torch.Tensor
-        Diagonal elements of the first covariance matrix
-    sigma2_diag : torch.Tensor
-        Diagonal elements of the second covariance matrix
-    gamma : float
-        Gamma parameter
-    v : float
-        v parameter used in calculating K
-    k : int, optional
-        Dimension parameter for C_gamma computation. If None, uses length of mu1
+        Degrees of freedom (v > 0)
+    log_sigma : torch.Tensor
+        Log variance parameter of shape (d,)
         
     Returns:
     --------
     torch.Tensor
-        The t-divergence value
+        The computed Ψ values of shape (d,)
     """
-    # Convert scalars to tensors
-    #gamma = torch.tensor(gamma, dtype=mu1.dtype, device=mu1.device)
-    #v = torch.tensor(v, dtype=mu1.dtype, device=mu1.device)
+    # Compute numerator: Γ((v+1)/2)
+    numerator = gamma_function((v + 1) / 2)
     
-    # If k is not provided, use the dimension of the input
-    if k is None:
-        k = mu1.shape[0]
+    # Compute denominator parts
+    pi_v_term = math.sqrt(math.pi * v)
+    gamma_term = gamma_function(v/2)
     
-    v = 2/(q-1) - k
+    # Convert to tensor for broadcasting
+    numerator = torch.tensor(numerator, dtype=torch.float32)
+    pi_v_term = torch.tensor(pi_v_term, dtype=torch.float32)
+    gamma_term = torch.tensor(gamma_term, dtype=torch.float32)
     
-    # Compute C_gamma using the new formula
-    c_gamma = compute_c_gamma(v, k)/(1-q)
+    # Use log_sigma directly and exp(log_sigma/2) for sqrt(sigma)
+    sigma_term = torch.exp(log_sigma/2)
     
-    # Calculate determinant terms with power 1/(v+k) = -gamma/2
-    det1_term = torch.pow(torch.prod(sigma1_diag), 1/(v+k))
-    det2_term = torch.pow(torch.prod(sigma2_diag),1/(v+k))
+    # Combine terms
+    base = numerator / (pi_v_term * gamma_term * sigma_term)
     
-    # Calculate K2 = (1/v) * sigma2^(-1)
-    K2_diag = (1/v) / sigma2_diag
+    # Raise to power -2/(v+1)
+    psi = base ** (-2/(v + 1))
     
-    # Term 1: (C_gamma/gamma)|Σ₁|^(-γ/2)(1 + 1/v)
-    term1 = det1_term * (1 + 1/v)
+    return psi
+
+def compute_t_st(mu1, mu2, log_sigma1, log_sigma2, v, sum = True):
+    """
+    Calculate the element-wise t-divergence between two d-dimensional distributions.
     
-    # Term 2: 2|Σ₂|^(-γ/2)μ₁ᵀK₂μ₂
-    term2 = 2 * det2_term * torch.sum(K2_diag * mu1 * mu2)
+    Parameters:
+    -----------
+    mu1 : torch.Tensor
+        Mean of the first distribution, shape (d,)
+    mu2 : torch.Tensor
+        Mean of the second distribution, shape (d,)
+    log_sigma1 : torch.Tensor
+        Log variance of the first distribution, shape (d,)
+    log_sigma2 : torch.Tensor
+        Log variance of the second distribution, shape (d,)
+    v : int or torch.Tensor
+        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The element-wise t-divergence values, shape (d,)
+    """
     
-    # Term 3: -|Σ₂|^(-γ/2)Tr(K₂Σ₁)
-    term3 = -det2_term * torch.sum(K2_diag * sigma1_diag)
+    # Check if v is positive
+    if v <= 0:
+        raise ValueError("Degrees of freedom v must be positive")
     
-    # Term 4: -|Σ₂|^(-γ/2)μ₁ᵀK₂μ₁
-    term4 = -det2_term * torch.sum(K2_diag * mu1 * mu1)
+    # Ensure all inputs have the same shape
+    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
     
-    # Term 5: -|Σ₂|^(-γ/2)(μ₂ᵀK₂μ₂ + 1)
-    term5 = -det2_term * (torch.sum(K2_diag * mu2 * mu2) + 1)
+    # Calculate t from v: t = 2/(v+1) + 1
+    t = 2/(v + 1) + 1
+    
+    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
+    psi1 = compute_psi_vectorized(v, log_sigma1)
+    psi2 = compute_psi_vectorized(v, log_sigma2)
+    
+    # Common denominator terms
+    den = 1 - t  # = -2/(v+1)
+    
+    # Convert log_sigma2 to sigma2 for calculations
+    sigma1 = torch.exp(log_sigma1)
+    sigma2 = torch.exp(log_sigma2)
+    v_sigma2 = v * sigma2
+    
+    # Calculate each term (element-wise operations)
+    term1 = (psi1/den) * (1 + 1/v)
+    term2 = (2 * psi2/den) * (mu1 * mu2/v_sigma2)
+    term3 = -(psi2/den) * (sigma1/v_sigma2)
+    term4 = -(psi2/den) * (mu1 * mu1/v_sigma2)
+    term5 = -(psi2/den) * (mu2 * mu2/v_sigma2 + 1)
     
     # Combine all terms
-    divergence = c_gamma*(term1 + term2 + term3 + term4 + term5)
+    dim = mu1.shape[0] #Subtract (d-1) when computing the q product
+    if sum:
+        #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
+        divergence = torch.sum(term1 + term2 + term3 + term4 + term5)
+    else:
+        divergence = term1 + term2 + term3 + term4 + term5
     
     return divergence
 
