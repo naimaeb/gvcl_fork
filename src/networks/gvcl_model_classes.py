@@ -14,11 +14,14 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.parameter import Parameter
 from torch import distributions
+from torch.distributions.studentT import StudentT
 
 import math
 import numpy as np
 from torch.nn import init
 from functools import partial
+
+from math import gamma as gamma_function
 
 device = 'cuda:0'
 
@@ -124,7 +127,7 @@ class MultiHeadFiLMCNN(nn.Module):
         self.device = device
         return super().to(device)
 
-    def forward(self, x, task_labels, num_samples=1, tasks = None):
+    def forward(self, x, task_labels, reg_type, num_samples=1, tasks = None):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
@@ -140,7 +143,7 @@ class MultiHeadFiLMCNN(nn.Module):
         x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
-            x = conv_layer(x)
+            x = conv_layer(x,reg_type)
             if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
                 x = self.conv_film_layers[i](x, task_labels, num_samples)
             
@@ -154,50 +157,37 @@ class MultiHeadFiLMCNN(nn.Module):
             x = x.view(num_samples, batch_size, -1)
         
         for i, layer in enumerate(self.fc_layers):
-            x = layer(x)
+            x = layer(x, reg_type)
             if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
                 x = self.fc_film_layers[i](x, task_labels, num_samples)
+            
             x = F.relu(x)
             
         self.pre_head = x
 
         for j in tasks:
             head_index = 0 if self.single_head else j
-            task_output = self.heads[head_index](x)
+            task_output = self.heads[head_index](x,reg_type)
             outputs[j] = task_output.reshape([num_samples, batch_size, -1])
         for j in excluded_tasks:
             outputs[j] = torch.zeros_like(task_output, device = device)
 
         return outputs
 
-    def get_reg(self, lamb = 1, regtype = 'kl_g', q = 2):
+    def get_reg(self, lamb, reg_type, q,v):
         kl = 0
 
         for i, conv_layer in enumerate(self.conv_layers):
-            kl += conv_layer.get_reg(lamb, regtype, q)
+            kl += conv_layer.get_reg(lamb, reg_type, q, v)
         
         for layer in self.fc_layers:
-            kl += layer.get_reg(lamb, regtype, q)
+            kl += layer.get_reg(lamb, reg_type, q, v)
 
         for t, layer in enumerate(self.heads):
-            kl += layer.get_reg(lamb, regtype, q)
+            kl += layer.get_reg(lamb, reg_type, q, v)
 
         return kl
-    '''
-    def get_kl_true(self, lamb = 1):
-        kl = 0
-
-        for i, conv_layer in enumerate(self.conv_layers):
-            kl += conv_layer.get_kl_true(lamb)
-        
-        for layer in self.fc_layers:
-            kl += layer.get_kl_true(lamb)
-
-        for t, layer in enumerate(self.heads):
-            kl += layer.get_kl_true(lamb)
-
-        return kl
-    ''' 
+    
     def add_task_body_params(self, updated_tasks):
         for layer in self.fc_layers:
             layer.add_new_task()
@@ -239,7 +229,7 @@ class PointFiLMLayer(nn.Module):
 class MFConvLayer(torch.nn.modules.conv._ConvNd):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1,
-                 bias=True, padding_mode='zeros', prior_var = 1, init_var = -7):
+                 bias=True, padding_mode='zeros', prior_var = 1, init_var = -7, reg_type = 'kl_g', v = -1):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
@@ -259,6 +249,10 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
 
         self.weight_var = Parameter(torch.Tensor(self.weight.shape))
         self.bias_var = Parameter(torch.Tensor(self.bias.shape))
+
+        self.reg_type = reg_type #regularization type, must be set to "t_st" for student-t sampling
+
+        self.v = v #degree of student t-distribution
         
         self.reset_parameters()
 
@@ -306,7 +300,7 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
 
         return W_kl + b_kl
 
-    def get_reg(self, lamb, regtype, q):
+    def get_reg(self, lamb, reg_type, q, v):
         '''
         Function that computes either of the possible 4 regularization types;
         1. KL between two Gaussians
@@ -317,32 +311,31 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         Returns:
         divergence value (torch.float)
         '''
-        if regtype == 'kl_g':
+        if reg_type == 'kl_g':
             kl_function = compute_kl_g
-        elif regtype == 're_g':
+        elif reg_type == 're_g':
             kl_function = compute_re_g
-        elif regtype == "kl_qg":
+        elif reg_type == "kl_qg":
             kl_function = compute_kl_qg
-        elif regtype == "re_qg":
-            kl_function = compute_re_qg
+        elif reg_type == "t_st":
+            kl_function = compute_t_st
         else:
-            raise ValueError(f"Unknown regularization type: {regtype}")
+            raise ValueError(f"Unknown regularization type: {reg_type}")
 
-        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
-        return W_kl + b_kl
-    
-    def get_kl_true(self, lamb):
-        W_kl = compute_kl_true(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-        b_kl = compute_kl_true(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-
+        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
 
-    def forward(self, input):
+    def forward(self, input, reg_type):
         output_mean =  self.conv2d_forward(input, self.weight, self.bias)
         output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
 
-        eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+        if reg_type == 't_st':
+            #print("Student-t sampling")
+            eps = StudentT(df = self.v, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+        else:
+            #print("Normal sampling")
+            eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
         output = output_mean + torch.sqrt(output_var + 1e-9) * eps
 
         return output
@@ -366,6 +359,7 @@ class MFLinearLayer(nn.Module):
         
         self.W_prior_var = torch.ones([dim_out, dim_in], device = device).mul(np.log(self.prior_var))
         self.b_prior_var = torch.ones([dim_out], device = device).mul(np.log(self.prior_var))
+
 
         self.reset_parameters()
 
@@ -406,7 +400,7 @@ class MFLinearLayer(nn.Module):
         b_kl = compute_kl_g(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
         return W_kl + b_kl
 
-    def get_reg(self, lamb, regtype, q):
+    def get_reg(self, lamb, reg_type, q, v):
         '''
         Function that computes either of the possible 4 regularization types;
         1. KL between two Gaussians
@@ -417,34 +411,35 @@ class MFLinearLayer(nn.Module):
         Returns:
         divergence value (torch.float)
         '''
-        if regtype == 'kl_g':
+        if reg_type == 'kl_g':
             kl_function = compute_kl_g
-        elif regtype == 're_g':
+        elif reg_type == 're_g':
             kl_function = compute_re_g
-        elif regtype == "kl_qg":
+        elif reg_type == "kl_qg":
             kl_function = compute_kl_qg
-        elif regtype == "re_qg":
-            kl_function = compute_re_qg
+        elif reg_type == "t_st":
+            kl_function = compute_t_st
         else:
-            raise ValueError(f"Unknown regularization type: {regtype}")
+            raise ValueError(f"Unknown regularization type: {reg_type}")
 
-        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, lamb=lamb, initial_prior_var=self.prior_var)
+        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
-    
-    def get_kl_true(self, lamb):
-        W_kl = compute_kl_true(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-        b_kl = compute_kl_true(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
 
-    def forward(self, x):
+    def forward(self, x, reg_type):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
-        eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+        if  reg_type == 't_st':
+            #print("Student-t sampling")
+            eps = StudentT(df = self.v, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+        else:
+            #print("Normal sampling")
+            eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
 
         output = output_mean + (eps * output_std)
         return output
 
-def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum = True, lamb = 1, initial_prior_var = 1):
     #print("mean shape:", mean.shape)
     #print("exp_var shape:", exp_var.shape)
     #print("prior_mean shape:", prior_mean.shape)
@@ -464,7 +459,7 @@ def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True
 
 #extend compute kl method to choose renyi between gaussians, renyi between q-gaussians, kl between q gaussians or kl begtween gaussians
 
-def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True, lamb = 1, initial_prior_var = 1):
     """
     Compute the Rényi divergence between univariate Gaussian posterior and prior distributions.
     
@@ -480,7 +475,9 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True
     """
     # Compute posterior variance and prior variance from log-variances
     var = torch.exp(log_var)  # Posterior variance
-    prior_var = torch.exp(log_prior_var)  # Prior variance
+    prior_var = torch.exp(log_prior_var)  # Prior variance 
+    # to check
+    prior_var_lamda = (lamb * torch.clamp(torch.exp(-log_prior_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
 
     # Compute the mixed variance (Σ_α)^*
     mixed_var = alpha * prior_var + (1 - alpha) * var
@@ -497,6 +494,113 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True
     else:
         return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)
 
+def compute_psi_vectorized(v, log_sigma):
+    """
+    Compute Ψ for the d-dimensional case using degrees of freedom v.
+    Works with log-space sigma.
+    
+    Parameters:
+    -----------
+    v : float
+        Degrees of freedom (v > 0)
+    log_sigma : torch.Tensor
+        Log variance parameter of shape (d,)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The computed Ψ values of shape (d,)
+    """
+    k = log_sigma.shape[0]
+
+    # Ensure k does not equal v
+    if k == v:
+        raise ValueError("k cannot equal v")
+    # Compute numerator: Γ((v+1)/2)
+    numerator = gamma_function((v + k) / 2)
+    
+    # Compute denominator parts
+    pi_v_term = (math.pi * v)**(k/2)
+    gamma_term = gamma_function(v/2)
+    
+    # Convert to tensor for broadcasting
+    numerator = torch.tensor(numerator, dtype=torch.float32)
+    pi_v_term = torch.tensor(pi_v_term, dtype=torch.float32)
+    gamma_term = torch.tensor(gamma_term, dtype=torch.float32)
+    
+    # Use log_sigma directly and exp(log_sigma/2) for sqrt(sigma)
+    sigma_term = torch.prod(torch.exp(log_sigma/2)) #computes the determinant od a diagonal matrix
+    
+    # Combine terms
+    base = numerator / (pi_v_term * gamma_term * sigma_term)
+    
+    # Raise to power -2/(v+1)
+    psi = base ** (-2/(v + k))
+    
+    return psi
+
+def compute_t_st(mu1, mu2, log_sigma1, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+    """
+    Calculate the element-wise t-divergence between two d-dimensional distributions.
+    
+    Parameters:
+    -----------
+    mu1 : torch.Tensor
+        Mean of the first distribution, shape (d,)
+    mu2 : torch.Tensor
+        Mean of the second distribution, shape (d,)
+    log_sigma1 : torch.Tensor
+        Log variance of the first distribution, shape (d,)
+    log_sigma2 : torch.Tensor
+        Log variance of the second distribution, shape (d,)
+    v : int or torch.Tensor
+        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The element-wise t-divergence values, shape (d,)
+    """
+    
+    # Check if v is positive
+    if v <= 0:
+        raise ValueError("Degrees of freedom v must be positive")
+    
+    # Ensure all inputs have the same shape
+    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
+    
+    # Calculate t from v: t = 2/(v+1) + 1
+    t = 2/(v + 1) + 1
+    
+    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
+    psi1 = compute_psi_vectorized(v, log_sigma1)
+    psi2 = compute_psi_vectorized(v, log_sigma2)
+    
+    # Common denominator terms
+    den = 1 - t  # = -2/(v+1)
+    
+    # Convert log_sigma2 to sigma2 for calculations
+    sigma1 = torch.exp(log_sigma1)
+    sigma2 = torch.exp(log_sigma2)
+    v_sigma2 = v * sigma2
+    
+    # Calculate each term (element-wise operations)
+    term1 = (psi1/den) * (1 + 1/v)
+    term2 = (2 * psi2/den) * (mu1 * mu2/v_sigma2)
+    term3 = -(psi2/den) * (sigma1/v_sigma2)
+    term4 = -(psi2/den) * (mu1 * mu1/v_sigma2)
+    term5 = -(psi2/den) * (mu2 * mu2/v_sigma2 + 1)
+    
+    # Combine all terms
+    dim = mu1.shape[0] #Subtract (d-1) when computing the q product
+    if sum:
+        #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
+        divergence = torch.sum(term1 + term2 + term3 + term4 + term5)
+    else:
+        divergence = term1 + term2 + term3 + term4 + term5
+    
+    return divergence
+
 def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
     '''
     KL divergence between two q-Gaussians. To be implemented
@@ -505,8 +609,9 @@ def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = Tru
 
 def compute_re_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
     '''
-    Renyi divergence between two q-Gaussians. To be implemented
+    t-Divergence between two Student-t distributions with diagonal covariances
     '''
+    
     return 1
     
 def compute_kl_true(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):

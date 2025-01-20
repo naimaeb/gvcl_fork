@@ -11,7 +11,7 @@ import wandb
 class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, train_samples = 10 , args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=100,sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -45,6 +45,7 @@ class Appr(ApprBase):
         #terms relating to the type of regularizer that will be used
         self.reg_type = reg_type #construct the 4 possible regularization cases
         self.q = q #degree of renyi divergence (lambda = 1 - q)
+        self.v = v #degrees of freedom of t distribution (int)(v = 2/(q-1)-1)
         self.train_samples = train_samples
 
         self.equalize_epochs = True
@@ -152,7 +153,7 @@ class Appr(ApprBase):
             task_labels = int(t) * torch.ones_like(targets)
 
             # Forward current model
-            outputs=self.model(images, task_labels, tasks = [t], num_samples = train_samples)
+            outputs=self.model(images, task_labels, self.reg_type, tasks = [t], num_samples = train_samples)
             output=outputs[t]
 
             #calculate loss for every MC sample
@@ -161,7 +162,7 @@ class Appr(ApprBase):
             class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
             
             #scale kl term by beta and dataset size
-            kl_term = self.beta * self.model.get_reg(lamb = self.lamb, regtype = self.reg_type, q = self.q)/(x.shape[0])
+            kl_term = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)/(x.shape[0])
             loss = class_loss + kl_term
 
 
@@ -210,7 +211,7 @@ class Appr(ApprBase):
                 task_labels = int(t) * torch.ones_like(targets)
 
                 # Forward
-                outputs=self.model(images, task_labels, tasks = [t], num_samples = 20)
+                outputs=self.model(images, task_labels, reg_type = self.reg_type, tasks = [t], num_samples = 20)
                 output=outputs[t]
                 probs = F.softmax(output, dim=2).mean(dim = 0)
                 _,pred=probs.max(1)
