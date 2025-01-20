@@ -20,8 +20,9 @@ parser.add_argument('--experiment',default='',type=str,required=True,choices=['m
 parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                             'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
                                                                             'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
-parser.add_argument('--regularizer', default='',type=str,required=False,choices=['kl_g','re_g','kl_qg','t_st'],help='(default=%(default)s)') 
+parser.add_argument('--reg_type', default='',type=str,required=False,choices=['kl_g','re_g','kl_qg','t_st'],help='(default=%(default)s)') 
 parser.add_argument('--q', default = 1.01, type=float, required=False)
+parser.add_argument('--v',type=int,default=1,help='(default=%(default)f)')
 parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
 parser.add_argument('--nepochs',default=-1,type=int,required=False,help='(default=%(default)d)')
 parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
@@ -37,7 +38,8 @@ parser.add_argument('--use-sweep',type=bool,default=False,help='(default=%(defau
 parser.add_argument('--train_samples', type=int, default=10, help='Number of samples from the posterior')
 args=parser.parse_args()
 if args.output=='':
-    args.output=os.path.join(args.root_path, 'res', args.experiment, args.approach, args.regularizer, f'{args.experiment}_{args.approach}_{args.regularizer}_{args.q}_{str(args.seed)}.txt')
+    args.output=os.path.join(args.root_path, 'res', f'{args.experiment}_{args.approach}_{args.reg_type}_{args.q}_{args.v}_{str(args.seed)}.txt')
+    #args.output=os.path.join(args.root_path, 'res', args.experiment, args.approach, args.reg_type, f'{args.experiment}_{args.approach}_{args.reg_type}_{args.q}_{str(args.seed)}.txt')
 print('='*100)
 print('Arguments =')
 for arg in vars(args):
@@ -226,7 +228,8 @@ if args.use_best_hyperparams:
 
 if args.use_sweep: 
     try: 
-        sweep_best = sweep_params[args.experiment][args.approach][args.regularizer]
+        print("args_reg",args.reg_type)
+        sweep_best = sweep_params[args.experiment][args.approach][args.reg_type]
         use_sweep = True
         for key, value in sweep_best.items():
             setattr(args, key, value)
@@ -240,15 +243,18 @@ if args.use_sweep:
 wandb.init(config=args, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 
 
-#set the regularizer if performing any vcl related approach
+#set the reg_type if performing any vcl related approach
 if 'vcl' in args.approach:
     print("regularization happening")
 
+print(vars(args))
 appr=approach.Appr(net,**vars(args))
 
 print("approach.beta", appr.beta)
 print("approach.lamb", appr.lamb)
 print("approach.q", appr.q)
+print("approach.v", appr.v)
+print("approach.reg", appr.reg_type)
 
 print("criterion", appr.criterion)
 utils.print_optimizer_config(appr.optimizer)
@@ -350,4 +356,4 @@ if hasattr(appr, 'logs'):
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=0 python ./src/run.py --use-sweep True --experiment cifar --approach gvcl --seed 42 --regularizer kl_g
+# example command: CUDA_VISIBLE_DEVICES=0 python ./src/run.py --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type kl_g
