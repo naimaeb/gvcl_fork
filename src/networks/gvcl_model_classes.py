@@ -480,7 +480,11 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
     mixed_var = alpha * prior_var + (1 - alpha) * var
 
     # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
-    mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
+    if lamb != 1:
+        mahalanobis_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
+    
+    else:
+        mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
 
     # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
     log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
