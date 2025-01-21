@@ -356,4 +356,4 @@ if hasattr(appr, 'logs'):
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=0 python ./src/run.py --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type kl_g
+# example command: CUDA_VISIBLE_DEVICES=4 python ./src/run.py --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type kl_g
