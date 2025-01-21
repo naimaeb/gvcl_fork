@@ -228,7 +228,6 @@ if args.use_best_hyperparams:
 
 if args.use_sweep: 
     try: 
-        print("args_reg",args.reg_type)
         sweep_best = sweep_params[args.experiment][args.approach][args.reg_type]
         use_sweep = True
         for key, value in sweep_best.items():
@@ -244,10 +243,6 @@ wandb.init(config=args, project=wandb_setup['project-name'], entity=wandb_setup[
 
 
 #set the reg_type if performing any vcl related approach
-if 'vcl' in args.approach:
-    print("regularization happening")
-
-print(vars(args))
 appr=approach.Appr(net,**vars(args))
 
 print("approach.beta", appr.beta)

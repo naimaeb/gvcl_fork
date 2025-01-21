@@ -127,7 +127,7 @@ class MultiHeadFiLMCNN(nn.Module):
         self.device = device
         return super().to(device)
 
-    def forward(self, x, task_labels, reg_type, num_samples=1, tasks = None):
+    def forward(self, x, task_labels, reg_type, v, num_samples=1, tasks = None):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
@@ -143,7 +143,7 @@ class MultiHeadFiLMCNN(nn.Module):
         x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
-            x = conv_layer(x,reg_type)
+            x = conv_layer(x,reg_type,v)
             if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
                 x = self.conv_film_layers[i](x, task_labels, num_samples)
             
@@ -157,7 +157,7 @@ class MultiHeadFiLMCNN(nn.Module):
             x = x.view(num_samples, batch_size, -1)
         
         for i, layer in enumerate(self.fc_layers):
-            x = layer(x, reg_type)
+            x = layer(x, reg_type,v)
             if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
                 x = self.fc_film_layers[i](x, task_labels, num_samples)
             
@@ -167,7 +167,7 @@ class MultiHeadFiLMCNN(nn.Module):
 
         for j in tasks:
             head_index = 0 if self.single_head else j
-            task_output = self.heads[head_index](x,reg_type)
+            task_output = self.heads[head_index](x,reg_type,v)
             outputs[j] = task_output.reshape([num_samples, batch_size, -1])
         for j in excluded_tasks:
             outputs[j] = torch.zeros_like(task_output, device = device)
@@ -229,7 +229,7 @@ class PointFiLMLayer(nn.Module):
 class MFConvLayer(torch.nn.modules.conv._ConvNd):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1,
-                 bias=True, padding_mode='zeros', prior_var = 1, init_var = -7, reg_type = 'kl_g', v = -1):
+                 bias=True, padding_mode='zeros', prior_var = 1, init_var = -7):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
@@ -250,9 +250,6 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         self.weight_var = Parameter(torch.Tensor(self.weight.shape))
         self.bias_var = Parameter(torch.Tensor(self.bias.shape))
 
-        self.reg_type = reg_type #regularization type, must be set to "t_st" for student-t sampling
-
-        self.v = v #degree of student t-distribution
         
         self.reset_parameters()
 
@@ -326,13 +323,13 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
 
-    def forward(self, input, reg_type):
+    def forward(self, input, reg_type, v):
         output_mean =  self.conv2d_forward(input, self.weight, self.bias)
         output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
 
         if reg_type == 't_st':
             #print("Student-t sampling")
-            eps = StudentT(df = self.v, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+            eps = sample_student_t(output_mean.shape, v, device=device)
         else:
             #print("Normal sampling")
             eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
@@ -426,12 +423,12 @@ class MFLinearLayer(nn.Module):
         b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
 
-    def forward(self, x, reg_type):
+    def forward(self, x, reg_type, v):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
         if  reg_type == 't_st':
             #print("Student-t sampling")
-            eps = StudentT(df = self.v, loc=0.0, scale=1.0).rsample(torch.empty(output_mean.shape)).to(device=device)
+            eps = sample_student_t(output_mean.shape, v, device=device)
         else:
             #print("Normal sampling")
             eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
@@ -483,7 +480,11 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
     mixed_var = alpha * prior_var + (1 - alpha) * var
 
     # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
-    mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
+    if lamb != 1:
+        mahalanobis_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
+    
+    else:
+        mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
 
     # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
     log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
@@ -517,7 +518,7 @@ def compute_psi_vectorized(v, log_sigma):
     if k == v:
         raise ValueError("k cannot equal v")
     # Compute numerator: Γ((v+1)/2)
-    numerator = gamma_function((v + k) / 2)
+    numerator = gamma_function((v + 1) / 2)
     
     # Compute denominator parts
     pi_v_term = (math.pi * v)**(k/2)
@@ -571,10 +572,16 @@ def compute_t_st(mu1, mu2, log_sigma1, log_sigma2, q, v, sum = True, lamb = 1, i
     
     # Calculate t from v: t = 2/(v+1) + 1
     t = 2/(v + 1) + 1
+
+    #Calcualte dimensionality
+    k = mu1.shape[0]
     
     # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
-    psi1 = compute_psi_vectorized(v, log_sigma1)
-    psi2 = compute_psi_vectorized(v, log_sigma2)
+    #psi1 = compute_psi_vectorized(v, log_sigma1)
+    #psi2 = compute_psi_vectorized(v, log_sigma2)
+    #implement ignoring the gamma terms, as they will be the same for all divergences (just a constant multiplier)
+    psi1 = torch.prod(torch.exp(log_sigma1/(v+k))) #computes the determinant od a diagonal matrix raised to the power of 1/v+k
+    psi2 = torch.prod(torch.exp(log_sigma2/(v+k)))
     
     # Common denominator terms
     den = 1 - t  # = -2/(v+1)
@@ -586,18 +593,16 @@ def compute_t_st(mu1, mu2, log_sigma1, log_sigma2, q, v, sum = True, lamb = 1, i
     
     # Calculate each term (element-wise operations)
     term1 = (psi1/den) * (1 + 1/v)
-    term2 = (2 * psi2/den) * (mu1 * mu2/v_sigma2)
-    term3 = -(psi2/den) * (sigma1/v_sigma2)
-    term4 = -(psi2/den) * (mu1 * mu1/v_sigma2)
-    term5 = -(psi2/den) * (mu2 * mu2/v_sigma2 + 1)
+    term2 = 2 * (mu1 * mu2/v_sigma2)
+    term3 = -1 * (sigma1/v_sigma2)
+    term4 = -1 * (mu1 * mu1/v_sigma2)
+    term5 = -1 * (mu2 * mu2/v_sigma2 + 1)
     
-    # Combine all terms
-    dim = mu1.shape[0] #Subtract (d-1) when computing the q product
     if sum:
         #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
-        divergence = torch.sum(term1 + term2 + term3 + term4 + term5)
+        divergence = torch.sum((psi1/den)*term1 + (psi2/den)*(term2 + term3 + term4 + term5))
     else:
-        divergence = term1 + term2 + term3 + term4 + term5
+        divergence = (psi1/den)*term1 + (psi2/den)*(term2 + term3 + term4 + term5)
     
     return divergence
 
@@ -631,3 +636,30 @@ def compute_kl_true(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = T
     dist2 = dist.MultivariateNormal(prior_mean, prior_cov_matrix)
     kl_loss = torch.distributions.kl.kl_divergence(dist1, dist2)
     return kl_loss
+
+def sample_student_t(shape, df, device="cuda", dtype=torch.float32):
+    """
+    Efficiently sample from a Student's t-distribution using PyTorch.
+    
+    Parameters:
+        shape (tuple): The shape of the output samples.
+        df (float): Degrees of freedom of the Student's t-distribution.
+        loc (float): Mean (location parameter) of the distribution.
+        scale (float): Scale parameter of the distribution.
+        device (str): The device to use ('cpu' or 'cuda').
+        dtype (torch.dtype): The data type for the samples.
+
+    Returns:
+        torch.Tensor: Samples from the Student's t-distribution.
+    """
+    # Generate standard normal samples
+    X = torch.empty(shape, device=device).normal_(mean=0,std=1)
+    
+    # Generate chi-squared samples
+    Z = torch.distributions.Chi2(df).sample(shape).to(device=device)
+    
+    # Transform to Student's t-distribution
+    Y = X * torch.rsqrt(Z / df)
+    
+    # Apply location and scale
+    return Y
