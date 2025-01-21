@@ -153,7 +153,7 @@ class Appr(ApprBase):
             task_labels = int(t) * torch.ones_like(targets)
 
             # Forward current model
-            outputs=self.model(images, task_labels, self.reg_type, tasks = [t], num_samples = train_samples)
+            outputs=self.model(images, task_labels, self.reg_type, v = self.v, tasks = [t], num_samples = train_samples)
             output=outputs[t]
 
             #calculate loss for every MC sample
@@ -211,7 +211,7 @@ class Appr(ApprBase):
                 task_labels = int(t) * torch.ones_like(targets)
 
                 # Forward
-                outputs=self.model(images, task_labels, reg_type = self.reg_type, tasks = [t], num_samples = 20)
+                outputs=self.model(images, task_labels, reg_type = self.reg_type, v = self.v, tasks = [t], num_samples = 20)
                 output=outputs[t]
                 probs = F.softmax(output, dim=2).mean(dim = 0)
                 _,pred=probs.max(1)
