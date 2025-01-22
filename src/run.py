@@ -228,6 +228,7 @@ if args.use_best_hyperparams:
 
 if args.use_sweep: 
     try: 
+        print("args_reg",args.reg_type)
         sweep_best = sweep_params[args.experiment][args.approach][args.reg_type]
         use_sweep = True
         for key, value in sweep_best.items():
@@ -243,6 +244,10 @@ wandb.init(config=args, project=wandb_setup['project-name'], entity=wandb_setup[
 
 
 #set the reg_type if performing any vcl related approach
+if 'vcl' in args.approach:
+    print("regularization happening")
+
+print(vars(args))
 appr=approach.Appr(net,**vars(args))
 
 print("approach.beta", appr.beta)
@@ -349,6 +354,9 @@ if hasattr(appr, 'logs'):
         with gzip.open(os.path.join(appr.logpath), 'wb') as output:
             pickle.dump(appr.logs, output, pickle.HIGHEST_PROTOCOL)
 
+wandb.finish()
+
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=4 python ./src/run.py --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type kl_g
+# example command: CUDA_VISIBLE_DEVICES=1 python ./src/run.py --train_samples 3 --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type re_g
+# CUDA_VISIBLE_DEVICES=2 python ./src/run.py --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type t_st --v 10

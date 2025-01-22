@@ -139,17 +139,19 @@ class MultiHeadFiLMCNN(nn.Module):
         outputs = [None for j in range(self.num_tasks)]
 
         batch_size = x.shape[0]
-
-        x = x.repeat([num_samples,1,1,1])
+        if reg_type=="t_st":x = x.repeat([num_samples,1,1,1,1])
+        else:x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
-            x = conv_layer(x,reg_type,v)
+            x = conv_layer(x,reg_type,v, num_samples) 
             if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
                 x = self.conv_film_layers[i](x, task_labels, num_samples)
             
             x = F.relu(x)
             if i in self.pool_indices:
+                if reg_type=="t_st":x = x.view(-1, *x.shape[2:])
                 x = F.max_pool2d(x, kernel_size = 2, stride = 2)
+                if reg_type=="t_st":x = x.view(num_samples, batch_size, *x.shape[1:])
         
         if self.global_avg_pool:
             x = x.view(num_samples, batch_size, x.shape[1], -1).mean(-1)
@@ -323,7 +325,28 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
 
-    def forward(self, input, reg_type, v):
+
+    def forward_t_st(self, input, v, num_samples=1):
+
+        outputs = []
+        for i in range(num_samples):
+            W_eps = sample_student_t(self.weight.shape, v, device=device)
+            W_sigma = torch.sqrt(torch.exp(self.weight_var))
+            weight = self.weight + W_eps * W_sigma
+
+            bias_eps = sample_student_t(self.bias.shape, v, device=device)
+            bias_sigma = torch.sqrt(torch.exp(self.bias_var))
+            bias = self.bias + bias_eps * bias_sigma
+
+            outputs.append(self.conv2d_forward(input[i], weight, bias))
+
+        return torch.stack(outputs)
+
+
+    def forward(self, input, reg_type, v, num_samples=-1):
+        if reg_type=="t_st":
+            return self.forward_t_st(input, v, num_samples)
+        
         output_mean =  self.conv2d_forward(input, self.weight, self.bias)
         output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
 
@@ -540,7 +563,7 @@ def compute_psi_vectorized(v, log_sigma):
     
     return psi
 
-def compute_t_st(mu1, mu2, log_sigma1, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
     """
     Calculate the element-wise t-divergence between two d-dimensional distributions.
     
