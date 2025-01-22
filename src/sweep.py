@@ -364,5 +364,5 @@ wandb.agent(sweep_id, function=training_and_testing, count=20, project=wandb_set
 
 # example command: CUDA_VISIBLE_DEVICES=6 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-mnist-2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer kl_g
 # example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer kl_g
-# example command: CUDA_VISIBLE_DEVICES=0 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
+# example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
 # example command: CUDA_VISIBLE_DEVICES=2 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
