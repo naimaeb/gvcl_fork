@@ -71,23 +71,6 @@ class Appr(ApprBase):
     #todo: implement get optimizer with the diagonal fisher or block version of it
 
     def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
-        lr=self.lr
-
-        parameters = self.model.get_task_specific_parameters(t)
-        self.optimizer=self._get_optimizer(parameters, lr)
-        if self.lr_scheduling: self.setup_scheduler(**self.extra_arguments)
-
-        if 'chasy' not in self.exp:
-            #join train and validation sets because gvcl/vcl does not use early stopping
-            #except for chasy experiments where the validation set is very large compared to the test set
-            #this doesn't make a major difference - 1% max
-            xtrain = torch.cat([xtrain, xvalid], dim = 0)
-            ytrain = torch.cat([ytrain, yvalid], dim = 0)
-
-
-        if t != 0:
-            #update posterior to prior for everything except the first task
-            self.model.add_task_body_params([t-1])
 
         #making sure every dataset has the same # of gradient passes irrespective of dataset size
         if t == 0:
@@ -100,8 +83,31 @@ class Appr(ApprBase):
                 num_epochs_to_train = int(round(self.nepochs * self.first_train_size/len(xtrain)))
         if t > 0 and self.equalize_epochs:
             num_epochs_to_train = int(round(self.nepochs * self.first_train_size/len(xtrain)))
-
+        
         print('training for {} epochs'.format(num_epochs_to_train))
+
+        lr=self.lr
+
+        if t != 0:
+            #update posterior to prior for everything except the first task
+            self.model.add_task_body_params([t-1])
+
+        parameters = self.model.get_task_specific_parameters(t)
+        self.optimizer=self._get_optimizer(parameters, lr)
+        total_steps = num_epochs_to_train * len(ytrain) // self.sbatch
+        print(f"Total number of steps per task {t}: {total_steps}")
+        if self.lr_scheduling: 
+            print("Scheduling on.")
+            self.setup_scheduler(**self.extra_arguments, total_steps=total_steps)
+
+        if 'chasy' not in self.exp:
+            #join train and validation sets because gvcl/vcl does not use early stopping
+            #except for chasy experiments where the validation set is very large compared to the test set
+            #this doesn't make a major difference - 1% max
+            xtrain = torch.cat([xtrain, xvalid], dim = 0)
+            ytrain = torch.cat([ytrain, yvalid], dim = 0)
+
+
 
         # Loop epochs
         for e in range(num_epochs_to_train):
@@ -109,7 +115,6 @@ class Appr(ApprBase):
             clock0=time.time()
             class_loss, kl_loss, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
             clock1=time.time()
-
             clock2=time.time()
             #include wandb logging for these terms
             wandb.log({

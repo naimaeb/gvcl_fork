@@ -259,12 +259,7 @@ def training_and_testing(config=None):
     net=network.Net(inputsize,taskcla).cuda()
     utils.print_model_report(net)
 
-    #Set hyperparameters
-    config.total_steps = config.nepochs * len(data[0]['train']['y'])
-    print(f"Total number of steps: {config.total_steps}")
 
-
-    #set the regularizer if performing any vcl related approach
     if 'vcl' in config.approach:
         print("regularization happening")
     
@@ -356,7 +351,7 @@ def training_and_testing(config=None):
 
 
 # wandb sweep training
-sweep_id = "uxj50na5"#wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+sweep_id = "67oi2s14"#wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 wandb.agent(sweep_id, function=training_and_testing, count=20, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 
 
@@ -365,4 +360,4 @@ wandb.agent(sweep_id, function=training_and_testing, count=20, project=wandb_set
 # example command: CUDA_VISIBLE_DEVICES=6 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-mnist-2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer kl_g
 # example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer kl_g
 # example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
-# example command: CUDA_VISIBLE_DEVICES=2 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
+# example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
