@@ -16,7 +16,7 @@ tstart=time.time()
 # Arguments
 parser=argparse.ArgumentParser(description='xxx')
 parser.add_argument('--seed',type=int,default=0,help='(default=%(default)d)')
-parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist'],help='(default=%(default)s)')
+parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot'],help='(default=%(default)s)')
 parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                             'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
                                                                             'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
@@ -69,6 +69,8 @@ elif args.experiment=='hard-chasy':
     from dataloaders import hard_chasy as dataloader
 elif args.experiment=='smnist':
     from dataloaders import smnist as dataloader
+elif args.experiment=='omniglot':
+    from dataloaders import omniglot as dataloader
 
 # Args -- Approach
 if args.approach=='random':
@@ -200,6 +202,9 @@ elif 'smnist' == args.experiment:
     else:
         from networks import smnistnet as network
 
+elif 'omniglot' == args.experiment:
+    # use a single network for all the models
+    from networks.gvcl_models import OmniglotNet as network
 
 ########################################################################################################################
 
@@ -359,4 +364,4 @@ wandb.finish()
 ########################################################################################################################
 
 # example command: CUDA_VISIBLE_DEVICES=1 python ./src/run.py --train_samples 3 --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type re_g
-# CUDA_VISIBLE_DEVICES=3 python ./src/run.py --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type kl_g --v 10 --lr 1e-3
+# CUDA_VISIBLE_DEVICES=0 python ./src/run.py --nepochs 20 --experiment omniglot --train_samples 4 --approach gvcl --seed 14 --reg_type kl_g  --lr 1e-3

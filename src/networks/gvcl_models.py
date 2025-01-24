@@ -48,3 +48,9 @@ class AlexNetFiLM:
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
             super().__init__((3,32,32), [(64, 4, 0), 'pool', (128, 3, 0), 'pool', (256, 2, 0), 'pool'], [2048,2048], heads, film_type = 'scale', prior_var = 0.01)
+
+class OmniglotNet:
+    class Net(MultiHeadFiLMCNN):
+        def __init__(self, inputsize,taskcla):
+            heads = [t[1] for t in taskcla]
+            super().__init__((1,28,28), [(64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool'], [2048], heads, prior_var = 1.0)
