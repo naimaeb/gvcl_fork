@@ -147,7 +147,7 @@ class MultiHeadFiLMCNN(nn.Module):
             if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
                 x = self.conv_film_layers[i](x, task_labels, num_samples)
             
-            x = F.relu(x)
+            x = F.relu(x) 
             if i in self.pool_indices:
                 if reg_type=="t_st":x = x.view(-1, *x.shape[2:])
                 x = F.max_pool2d(x, kernel_size = 2, stride = 2)

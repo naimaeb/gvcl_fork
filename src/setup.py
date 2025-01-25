@@ -16,17 +16,28 @@ def get_args():
     parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                                 'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
                                                                                 'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
-    parser.add_argument('--regularizer', default='',type=str,required=False,choices=['t_st', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
+    parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
+    parser.add_argument('--q', default = 1.01, type=float, required=False)
+    parser.add_argument('--v',type=int,default=1,help='(default=%(default)f)')
     parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
     parser.add_argument('--nepochs',default=-1,type=int,required=False,help='(default=%(default)d)')
     parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
     parser.add_argument('--parameter',type=str,default='',help='(default=%(default)s)')
     parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')
-    parser.add_argument('--use-best-hyperparams',type=bool,default=True,help='(default=%(default)s)')
+    parser.add_argument('--momentum',type=float,default=0.9,help='(default=%(default)f)')
+    parser.add_argument('--weight_decay',type=float,default=0.0001,help='(default=%(default)f)')
+    parser.add_argument('--beta',type=float,default=1,help='(default=%(default)f)')
+    parser.add_argument('--lamb',type=float,default=1,help='(default=%(default)f)')
+    parser.add_argument('--root_path',type=str,default='./',help='(default=%(default)s)')
+    parser.add_argument('--use-best-hyperparams',type=bool,default=False,help='(default=%(default)s)')
+    parser.add_argument('--use-sweep',type=bool,default=False,help='(default=%(default)s)')
     parser.add_argument('--train_samples', type=int, default=10, help='Number of samples from the posterior')
+    parser.add_argument('--lr_schedule', type=bool, default=False, help='Whether to use a learning rate scheduler')
+    parser.add_argument('--scheduler_type', type=str, default='cosine_anneal', help='Type of learning rate scheduler') 
+    parser.add_argument('--sbatch', type=int, default=64, help='Batch size')
     args=parser.parse_args()
     if args.output=='':
-        args.output=root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.regularizer+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
+        args.output=root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.reg_type+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
     print('='*100)
     print('Arguments =')
     for arg in vars(args):

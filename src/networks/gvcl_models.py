@@ -53,4 +53,4 @@ class OmniglotNet:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((1,28,28), [(64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool'], [2048], heads, prior_var = 1.0)
+            super().__init__((1,28,28), [(64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool'], [2048], heads, prior_var = 0.01, film_type='none')

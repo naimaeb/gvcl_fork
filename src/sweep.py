@@ -11,6 +11,8 @@ wandb_setup = {
     "project-name":'curvy-cl',
     "entity":'nagiu'
 }
+
+tstart=time.time()
 root_path = './' #change to match running directory
 
 args, network, approach, dataloader = setup.get_args()
@@ -51,7 +53,7 @@ wandb_config = {
             'value': args.nepochs
         },
         'reg_type': {
-            'value': args.regularizer 
+            'value': args.reg_type 
         },
         'scheduler_type': {
             'value': 'cosine_anneal'
@@ -183,7 +185,7 @@ wandb.agent(sweep_id, function=training_and_testing, count=40, project=wandb_set
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=0 python ./src/sweep.py --sweep_name 'kl_g_vcl-nofilm-max-omniglot' --nepochs 100 --experiment omniglot --train_samples 4 --approach gvcl --seed 14 --regularizer kl_g
-# example command: CUDA_VISIBLE_DEVICES=7 python ./src/sweep.py --sweep_name 're_g_vcl-nofilm-max-mnist-v2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer re_g
-# example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
-# example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --regularizer t_st
+# example command: CUDA_VISIBLE_DEVICES=0 python ./src/sweep.py --sweep_name 'kl_g_vcl-nofilm-max-omniglot' --nepochs 100 --experiment omniglot --train_samples 4 --approach gvcl --seed 14 --reg_type kl_g
+# example command: CUDA_VISIBLE_DEVICES=7 python ./src/sweep.py --sweep_name 're_g_vcl-nofilm-max-mnist-v2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type re_g
+# example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type t_st
+# example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type t_st
