@@ -2,6 +2,8 @@ import torch
 from torch import nn
 import pytorch_warmup as warmup
 
+from utils import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_student_t
+
 class ApprBase(object):
     """ Base class for any approach class. It implements some basic functionalities which can be useful during training and setting up the model: 
         - _get_optimizer: general setup keyword-arguments based

@@ -61,8 +61,8 @@ wandb_config = {
         'lr_schedule': {'value': True},
         'lr': {'values': [1e-3, 1e-2, 1e-1, 1],},
         #'lamb': {"max": 1e4, "min": 1e-3},
-        #'beta': {"max": 1.0, "min": 1e-3},
-        #'q': {"max": 3.0-1e-4, "min": 1.0+1e-4},
+        'beta': {"max": 1.0, "min": 1e-3},
+        'q': {"max": 3.0-1e-4, "min": 1.0+1e-4},
         #'v': {"max": 50, "min": 1, "distribution": "int_uniform"},
         'weight_decay':{"max": 1e-3, "min": 1e-6},
         'momentum': {'values': [0, 0.9, 0.99, 1]},
@@ -189,3 +189,4 @@ wandb.agent(sweep_id, function=training_and_testing, count=40, project=wandb_set
 # example command: CUDA_VISIBLE_DEVICES=7 python ./src/sweep.py --sweep_name 're_g_vcl-nofilm-max-mnist-v2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type re_g
 # example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-mnist' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type t_st
 # example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 't_st_gvcl-nofilm-max-cifar' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type t_st
+# example command: CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 're_g_gvcl-nofilm-max-omniglot' --nepochs 25 --experiment omniglot --train_samples 4 --approach gvcl --seed 14 --reg_type re_g 

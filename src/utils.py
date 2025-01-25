@@ -3,6 +3,29 @@ import numpy as np
 from copy import deepcopy
 import torch
 from tqdm import tqdm
+import torch
+import torch.distributions as dist
+from torch import nn
+from torch.nn import functional as F
+from torch.nn.parameter import Parameter
+
+import math
+from torch.nn import init
+from functools import partial
+from torch.nn.modules.utils import _pair
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+from torch.nn.parameter import Parameter
+from torch import distributions
+from torch.distributions.studentT import StudentT
+
+import math
+import numpy as np
+from torch.nn import init
+from functools import partial
+from math import gamma as gamma_function
 
 ########################################################################################################################
 
@@ -162,3 +185,232 @@ def is_number(s):
 
     return False
 ########################################################################################################################
+
+
+def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+    #print("mean shape:", mean.shape)
+    #print("exp_var shape:", exp_var.shape)
+    #print("prior_mean shape:", prior_mean.shape)
+    #print("prior_exp_var shape:", prior_exp_var.shape)
+    trace_term = torch.exp(exp_var - prior_exp_var)
+    if lamb != 1:
+        mean_term =  (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
+    else:
+        mean_term =  (mean - prior_mean)**2 * torch.exp(-prior_exp_var)
+    det_term = prior_exp_var - exp_var
+    
+    if sum:
+        return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
+    else:
+        return 0.5 * (trace_term + mean_term + det_term - 1)
+
+
+#extend compute kl method to choose renyi between gaussians, renyi between q-gaussians, kl between q gaussians or kl begtween gaussians
+
+def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True, lamb = 1, initial_prior_var = 1):
+    """
+    Compute the Rényi divergence between univariate Gaussian posterior and prior distributions.
+    
+    Args:
+        mean (torch.Tensor): Posterior mean (shape: [n]).
+        log_var (torch.Tensor): Log-variance of the posterior (shape: [n]).
+        prior_mean (torch.Tensor): Prior mean (shape: [n]).
+        log_prior_var (torch.Tensor): Log-variance of the prior (shape: [n]).
+        alpha (float): Order of the Rényi divergence (alpha > 0, alpha != 1).
+    
+    Returns:
+        torch.Tensor: Rényi divergence for each element in the input tensor (shape: [n]).
+    """
+    # Compute posterior variance and prior variance from log-variances
+    var = torch.exp(log_var)  # Posterior variance
+    prior_var = torch.exp(log_prior_var)  # Prior variance 
+    # to check
+    prior_var_lamda = (lamb * torch.clamp(torch.exp(-log_prior_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
+
+    # Compute the mixed variance (Σ_α)^*
+    mixed_var = alpha * prior_var + (1 - alpha) * var
+
+    # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
+    if lamb != 1:
+        mahalanobis_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
+    
+    else:
+        mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
+
+    # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
+    log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
+
+    if sum:
+        return 0.5 * torch.sum(mahalanobis_term - 0.5 / (alpha - 1) * log_det_term)
+    # Combine terms to compute Rényi divergence
+    else:
+        return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)
+
+def compute_psi_vectorized(v, log_sigma):
+    """
+    Compute Ψ for the d-dimensional case using degrees of freedom v.
+    Works with log-space sigma.
+    
+    Parameters:
+    -----------
+    v : float
+        Degrees of freedom (v > 0)
+    log_sigma : torch.Tensor
+        Log variance parameter of shape (d,)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The computed Ψ values of shape (d,)
+    """
+    k = log_sigma.shape[0]
+
+    # Ensure k does not equal v
+    if k == v:
+        raise ValueError("k cannot equal v")
+    # Compute numerator: Γ((v+1)/2)
+    numerator = gamma_function((v + 1) / 2)
+    
+    # Compute denominator parts
+    pi_v_term = (math.pi * v)**(k/2)
+    gamma_term = gamma_function(v/2)
+    
+    # Convert to tensor for broadcasting
+    numerator = torch.tensor(numerator, dtype=torch.float32)
+    pi_v_term = torch.tensor(pi_v_term, dtype=torch.float32)
+    gamma_term = torch.tensor(gamma_term, dtype=torch.float32)
+    
+    # Use log_sigma directly and exp(log_sigma/2) for sqrt(sigma)
+    sigma_term = torch.prod(torch.exp(log_sigma/2)) #computes the determinant od a diagonal matrix
+    
+    # Combine terms
+    base = numerator / (pi_v_term * gamma_term * sigma_term)
+    
+    # Raise to power -2/(v+1)
+    psi = base ** (-2/(v + k))
+    
+    return psi
+
+def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+    """
+    Calculate the element-wise t-divergence between two d-dimensional distributions.
+    
+    Parameters:
+    -----------
+    mu1 : torch.Tensor
+        Mean of the first distribution, shape (d,)
+    mu2 : torch.Tensor
+        Mean of the second distribution, shape (d,)
+    log_sigma1 : torch.Tensor
+        Log variance of the first distribution, shape (d,)
+    log_sigma2 : torch.Tensor
+        Log variance of the second distribution, shape (d,)
+    v : int or torch.Tensor
+        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The element-wise t-divergence values, shape (d,)
+    """
+    
+    # Check if v is positive
+    if v <= 0:
+        raise ValueError("Degrees of freedom v must be positive")
+    
+    # Ensure all inputs have the same shape
+    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
+    
+    # Calculate t from v: t = 2/(v+1) + 1
+    t = 2/(v + 1) + 1
+
+    #Calcualte dimensionality
+    k = mu1.shape[0]
+    
+    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
+    #psi1 = compute_psi_vectorized(v, log_sigma1)
+    #psi2 = compute_psi_vectorized(v, log_sigma2)
+    #implement ignoring the gamma terms, as they will be the same for all divergences (just a constant multiplier)
+    psi1 = torch.prod(torch.exp(log_sigma1/(v+k))) #computes the determinant od a diagonal matrix raised to the power of 1/v+k
+    psi2 = torch.prod(torch.exp(log_sigma2/(v+k)))
+    
+    # Common denominator terms
+    den = 1 - t  # = -2/(v+1)
+    
+    # Convert log_sigma2 to sigma2 for calculations
+    sigma1 = torch.exp(log_sigma1)
+    sigma2 = torch.exp(log_sigma2)
+    v_sigma2 = v * sigma2
+    
+    # Calculate each term (element-wise operations)
+    term1 = (psi1/den) * (1 + 1/v)
+    term2 = 2 * (mu1 * mu2/v_sigma2)
+    term3 = -1 * (sigma1/v_sigma2)
+    term4 = -1 * (mu1 * mu1/v_sigma2)
+    term5 = -1 * (mu2 * mu2/v_sigma2 + 1)
+    
+    if sum:
+        #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
+        divergence = torch.sum((psi1/den)*term1 + (psi2/den)*(term2 + term3 + term4 + term5))
+    else:
+        divergence = (psi1/den)*term1 + (psi2/den)*(term2 + term3 + term4 + term5)
+    
+    return divergence
+
+def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+    '''
+    KL divergence between two q-Gaussians. To be implemented
+    '''
+    return 1
+
+def compute_re_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+    '''
+    t-Divergence between two Student-t distributions with diagonal covariances
+    '''
+    
+    return 1
+    
+def compute_kl_true(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
+
+    '''
+    Computes the Dkl(approximate distribution || prior distribution) between two Gaussian distributions
+
+    Note that the variances are log variances
+    '''
+
+    #currently passing the variance of each individual weight, pass into a covariance form
+    cov_matrix = torch.diag_embed(torch.exp(exp_var))
+    prior_cov_matrix = torch.diag_embed(torch.exp(prior_exp_var))
+
+
+    dist1 = dist.MultivariateNormal(mean, cov_matrix)
+    dist2 = dist.MultivariateNormal(prior_mean, prior_cov_matrix)
+    kl_loss = torch.distributions.kl.kl_divergence(dist1, dist2)
+    return kl_loss
+
+def sample_student_t(shape, df, device="cuda", dtype=torch.float32):
+    """
+    Efficiently sample from a Student's t-distribution using PyTorch.
+    
+    Parameters:
+        shape (tuple): The shape of the output samples.
+        df (float): Degrees of freedom of the Student's t-distribution.
+        loc (float): Mean (location parameter) of the distribution.
+        scale (float): Scale parameter of the distribution.
+        device (str): The device to use ('cpu' or 'cuda').
+        dtype (torch.dtype): The data type for the samples.
+
+    Returns:
+        torch.Tensor: Samples from the Student's t-distribution.
+    """
+    # Generate standard normal samples
+    X = torch.empty(shape, device=device).normal_(mean=0,std=1)
+    
+    # Generate chi-squared samples
+    Z = torch.distributions.Chi2(df).sample(shape).to(device=device)
+    
+    # Transform to Student's t-distribution
+    Y = X * torch.rsqrt(Z / df)
+    
+    # Apply location and scale
+    return Y

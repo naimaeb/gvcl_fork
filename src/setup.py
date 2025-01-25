@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--seed',type=int,default=0)
     parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot'],help='(default=%(default)s)')
     parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
-                                                                                'imm-mode','sgd-restart', 'ewc2', 'ewc-film',
+                                                                                'imm-mode','sgd-restart', 'ewc2', 'ewc-film', 'fsvi',
                                                                                 'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
     parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
     parser.add_argument('--q', default = 1.01, type=float, required=False)
@@ -35,6 +35,7 @@ def get_args():
     parser.add_argument('--lr_schedule', type=bool, default=False, help='Whether to use a learning rate scheduler')
     parser.add_argument('--scheduler_type', type=str, default='cosine_anneal', help='Type of learning rate scheduler') 
     parser.add_argument('--sbatch', type=int, default=64, help='Batch size')
+    parser.add_argument('--optimizer', type=str, default='sgd', help='Optimizer')
     args=parser.parse_args()
     if args.output=='':
         args.output=root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.reg_type+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
@@ -98,6 +99,8 @@ def get_args():
         from approaches import gvcl as approach
     elif args.approach=='joint':
         from approaches import joint as approach
+    elif args.approach=='fsvi':
+        from approaches import fsvi as approach
 
     # Args -- Network
     if args.experiment=='mnist2' or args.experiment=='pmnist':
@@ -142,7 +145,7 @@ def get_args():
             from networks import zenkenet_ewc_film as network
         elif 'vclf' in args.approach:
             from networks.gvcl_models import ZenkeNetFiLM as network
-        elif 'vcl' in args.approach:
+        elif 'vcl' or 'fsvi' in args.approach:
             from networks.gvcl_models import ZenkeNetNoFiLM as network
         else:   
             from networks import zenkenet as network
@@ -160,7 +163,7 @@ def get_args():
             from networks import babynet_ewc_film as network
         elif 'vclf' in args.approach:
             from networks.gvcl_models import BabyNetFiLM as network
-        elif 'vcl' in args.approach:
+        elif 'vcl' or 'fsvi' in args.approach:
             from networks.gvcl_models import BabyNetNoFiLM as network
         else:
             from networks import babynet as network
@@ -184,7 +187,7 @@ def get_args():
             print("using vclf model smnist")
             from networks.gvcl_models import SMNISTNetFiLM as network
             #print("Film_type", network.get_film_type())
-        elif 'vcl' in args.approach:
+        elif 'vcl' or 'fsvi' in args.approach:
             print("using vcl model smnist")
             from networks.gvcl_models import SMNISTNetNoFiLM as network
         # print("Film_type", network.get_film_type())
