@@ -21,7 +21,7 @@ import numpy as np
 from torch.nn import init
 from functools import partial
 
-from . import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_student_t
+from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t
 
 
 device = 'cuda:0'
@@ -136,16 +136,16 @@ class MultiHeadCNN(nn.Module):
         outputs = [None for j in range(self.num_tasks)]
 
         batch_size = x.shape[0]
-        if reg_type=="t_st":x = x.repeat([num_samples,1,1,1,1])
+        if 't_st'in reg_type:x = x.repeat([num_samples,1,1,1,1])
         else:x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
             x = conv_layer(x,reg_type,v, num_samples)  
             x = self.act(x) 
             if i in self.pool_indices:
-                if reg_type=="t_st":x = x.view(-1, *x.shape[2:])
+                if 't_st'in reg_type:x = x.view(-1, *x.shape[2:])
                 x = F.max_pool2d(x, kernel_size = 2, stride = 2)
-                if reg_type=="t_st":x = x.view(num_samples, batch_size, *x.shape[1:])
+                if 't_st'in reg_type:x = x.view(num_samples, batch_size, *x.shape[1:])
         
         if self.global_avg_pool:
             x = x.view(num_samples, batch_size, x.shape[1], -1).mean(-1)
@@ -360,7 +360,7 @@ class MultiHeadFiLMCNN(nn.Module):
         outputs = [None for j in range(self.num_tasks)]
 
         batch_size = x.shape[0]
-        if reg_type=="t_st":x = x.repeat([num_samples,1,1,1,1])
+        if 't_st'in reg_type:x = x.repeat([num_samples,1,1,1,1])
         else:x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
@@ -370,9 +370,9 @@ class MultiHeadFiLMCNN(nn.Module):
             
             x = F.relu(x) 
             if i in self.pool_indices:
-                if reg_type=="t_st":x = x.view(-1, *x.shape[2:])
+                if 't_st'in reg_type:x = x.view(-1, *x.shape[2:])
                 x = F.max_pool2d(x, kernel_size = 2, stride = 2)
-                if reg_type=="t_st":x = x.view(num_samples, batch_size, *x.shape[1:])
+                if 't_st'in reg_type:x = x.view(num_samples, batch_size, *x.shape[1:])
         
         if self.global_avg_pool:
             x = x.view(num_samples, batch_size, x.shape[1], -1).mean(-1)
@@ -551,6 +551,9 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
+        elif reg_type == "t_st_mf":
+            kl_function == compute_t_st_mf
+    
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
@@ -593,13 +596,13 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         return torch.stack(outputs)
 
     def forward(self, input, reg_type, v, num_samples=-1):
-        if reg_type=="t_st":
+        if 't_st'in reg_type:
             return self.forward_t_st(input, v, num_samples)
         
         output_mean =  self.conv2d_forward(input, self.weight, self.bias)
         output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
 
-        if reg_type == 't_st':
+        if 't_st'in reg_type:
             #print("Student-t sampling")
             eps = sample_student_t(output_mean.shape, v, device=device)
         else:
@@ -707,6 +710,8 @@ class MFLinearLayer(nn.Module):
             kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
+        elif reg_type == "t_st_mf":
+            kl_function == compute_t_st_mf
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
@@ -717,7 +722,7 @@ class MFLinearLayer(nn.Module):
     def forward(self, x, reg_type, v):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
-        if  reg_type == 't_st':
+        if  't_st'in reg_type:
             #print("Student-t sampling")
             eps = sample_student_t(output_mean.shape, v, device=device)
         else:
@@ -727,6 +732,7 @@ class MFLinearLayer(nn.Module):
         output = output_mean + (eps * output_std)
         return output
 
+'''
 def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum = True, lamb = 1, initial_prior_var = 1):
     #print("mean shape:", mean.shape)
     #print("exp_var shape:", exp_var.shape)
@@ -786,7 +792,7 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
     else:
         return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)*log_det_term
 
-def compute_psi_vectorized_ln(v, k):
+#def compute_psi_vectorized_ln(v, k):
     """
     Compute Ψ for the d-dimensional case using log gamma functions.
     
@@ -867,13 +873,13 @@ def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, i
     
     # Common denominator terms: for t larger than 1 (the case that we are considering, den is negative)
 
-    det_term1 = torch.exp(torch.sum(log_sigma1)/(v+1))
-    det_term2 = torch.exp(torch.sum(log_sigma2)/(v+1))
+    det_term1 = torch.exp(torch.sum(log_sigma1)/(v+k))
+    det_term2 = torch.exp(torch.sum(log_sigma2)/(v+k))
     #mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
     mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
     trace_term = torch.exp(log_sigma1 - log_sigma2)/v
     #trace_term = torch.exp(log_sigma1 - log_sigma2)/v
-    det_term = torch.exp(log_sigma1/(v+1)) - torch.exp(log_sigma2/(v+1))
+    det_term = torch.exp(log_sigma1/(v+k)) - torch.exp(log_sigma2/(v+k))
     if sum:
         #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
         divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/v
@@ -881,11 +887,13 @@ def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, i
         divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/v)
     
     return divergence
-def compute_t_st_t(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+def compute_t_st_mf(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
     """
     Calculate the element-wise t-divergence between two d-dimensional distributions given q (which equals t)
     
     Note  t = 2/(v+k) + 1 and v = 2/(t-1) - k
+
+    Take mean field approach and assume v_new  = v -k +1. One obtains v = 2/(t-1) - 1
 
     Parameters:
     -----------
@@ -912,62 +920,26 @@ def compute_t_st_t(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1,
     
     # Ensure all inputs have the same shape
     assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
-    
-    k = mu1.shape[0]
     # Calculate t from v: t = 2/(v+1) + 1
-    v = 2/(q-1) - k
+    dof = 2/(q-1) - 1 #degree of fredom of the univariate t distribution based on q value
     den = 1 - q  # = -2/(v+1) 
 
-    #Calcualte dimensionality
-    k = mu1.shape[0]
-    
     # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
-    psi = compute_psi_vectorized_ln(v, k)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
+    psi = compute_psi_vectorized_ln(dof, 1)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
 
-    det_term1 = torch.exp(torch.sum(log_sigma1)/(v+1))
-    det_term2 = torch.exp(torch.sum(log_sigma2)/(v+1))
+    det_term1 = torch.exp(torch.sum(log_sigma1)/(dof+1))
+    det_term2 = torch.exp(torch.sum(log_sigma2)/(dof+1))
 
-    mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
-    trace_term = torch.exp(log_sigma1 - log_sigma2)/v
+    mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/dof
+    trace_term = torch.exp(log_sigma1 - log_sigma2)/dof
 
-    det_term = torch.exp(log_sigma1/(v+1)) - torch.exp(log_sigma2/(v+1))
+    det_term = torch.exp(log_sigma1/(dof+1)) - torch.exp(log_sigma2/(dof+1))
     if sum:
-        divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/v
+        divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/dof
     else:
-        divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/v)
+        divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/dof)
     
     return divergence
-
-def compute_kl_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
-    '''
-    KL divergence between two q-Gaussians. To be implemented
-    '''
-    return 1
-
-def compute_re_qg(mean, log_var, prior_mean, log_prior_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
-    '''
-    t-Divergence between two Student-t distributions with diagonal covariances
-    '''
-    
-    return 1
-    
-def compute_kl_true(mean, exp_var, prior_mean, prior_exp_var, alpha = 2, sum = True, lamb = 1, initial_prior_var = 1):
-
-    '''
-    Computes the Dkl(approximate distribution || prior distribution) between two Gaussian distributions
-
-    Note that the variances are log variances
-    '''
-
-    #currently passing the variance of each individual weight, pass into a covariance form
-    cov_matrix = torch.diag_embed(torch.exp(exp_var))
-    prior_cov_matrix = torch.diag_embed(torch.exp(prior_exp_var))
-
-
-    dist1 = dist.MultivariateNormal(mean, cov_matrix)
-    dist2 = dist.MultivariateNormal(prior_mean, prior_cov_matrix)
-    kl_loss = torch.distributions.kl.kl_divergence(dist1, dist2)
-    return kl_loss
 
 def sample_student_t(shape, df, device="cuda", dtype=torch.float32):
     """
@@ -995,3 +967,4 @@ def sample_student_t(shape, df, device="cuda", dtype=torch.float32):
     
     # Apply location and scale
     return Y
+'''

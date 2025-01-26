@@ -291,7 +291,158 @@ def compute_psi_vectorized(v, log_sigma):
     
     return psi
 
+def compute_psi_vectorized_ln(v, k):
+    """
+    Compute Ψ for the d-dimensional case using log gamma functions.
+    
+    Parameters:
+    -----------
+    v : float
+        Degrees of freedom (v > 0)
+    logsigma : torch.tensor 
+        Diagonal of the log covariance matrix of shape (d,)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The computed Ψ values
+    """
+    # Compute log numerator: log(Γ((v+k)/2))
+    log_numerator = math.lgamma((v + k) / 2)
+    
+    # Compute log denominator parts
+    log_pi_v_term = math.log(math.pi * v) * (k/2)
+    log_gamma_term = math.lgamma(v/2)
+    #log_det_term = torch.sum(log_sigma)*(1/2)
+    
+    # Combine log terms
+    log_base = log_numerator - log_pi_v_term - log_gamma_term #- log_det_term
+    
+    # Compute final result in log space and then exponentiate
+    log_psi = log_base * (-2/(v + k))
+    psi = math.exp(log_psi)
+    
+    return torch.tensor(psi, dtype=torch.float32)
+
 def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+    """
+    Calculate the element-wise t-divergence between two d-dimensional distributions given the dof v.
+    
+    Parameters:
+    -----------
+    mu1 : torch.Tensor
+        Mean of the first distribution, shape (d,)
+    mu2 : torch.Tensor
+        Mean of the second distribution, shape (d,)
+    log_sigma1 : torch.Tensor
+        Log variance of the first distribution, shape (d,)
+    log_sigma2 : torch.Tensor
+        Log variance of the second distribution, shape (d,)
+    v : int or torch.Tensor
+        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The element-wise t-divergence values, shape (d,)
+    """
+    
+    # Check if v is positive
+    if v <= 0:
+        raise ValueError("Degrees of freedom v must be positive")
+    
+    # Ensure all inputs have the same shape
+    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
+    
+    k = mu1.shape[0]
+    # Calculate t from v: t = 2/(v+1) + 1
+    t = 2/(v + k) + 1
+    den = 1 - t  # = -2/(v+1) 
+
+    #Calcualte dimensionality
+    k = mu1.shape[0]
+    
+    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
+    psi = compute_psi_vectorized_ln(v, k)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
+    #implement ignoring the gamma terms, as they will be the same for all divergences (just a constant multiplier)
+    #psi1 = torch.prod(torch.exp(log_sigma1/(v+k))) #computes the determinant od a diagonal matrix raised to the power of 1/v+k
+    #psi2 = torch.prod(torch.exp(log_sigma2/(v+k)))
+    #psi1 = torch.exp(torch.sum(log_sigma1)/(v+k))
+    #psi2 = torch.exp(torch.sum(log_sigma2)/(v+k))
+    
+    # Common denominator terms: for t larger than 1 (the case that we are considering, den is negative)
+
+    det_term1 = torch.exp(torch.sum(log_sigma1)/(v+k))
+    det_term2 = torch.exp(torch.sum(log_sigma2)/(v+k))
+    #mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
+    mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
+    trace_term = torch.exp(log_sigma1 - log_sigma2)/v
+    #trace_term = torch.exp(log_sigma1 - log_sigma2)/v
+    det_term = torch.exp(log_sigma1/(v+k)) - torch.exp(log_sigma2/(v+k))
+    if sum:
+        #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
+        divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/v
+    else:
+        divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/v)
+    
+    return divergence
+def compute_t_st_mf(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
+    """
+    Calculate the element-wise t-divergence between two d-dimensional distributions given q (which equals t)
+    
+    Note  t = 2/(v+k) + 1 and v = 2/(t-1) - k
+
+    Take mean field approach and assume v_new  = v -k +1. One obtains v = 2/(t-1) - 1
+
+    Parameters:
+    -----------
+    mu1 : torch.Tensor
+        Mean of the first distribution, shape (d,)
+    mu2 : torch.Tensor
+        Mean of the second distribution, shape (d,)
+    log_sigma1 : torch.Tensor
+        Log variance of the first distribution, shape (d,)
+    log_sigma2 : torch.Tensor
+        Log variance of the second distribution, shape (d,)
+    v : int or torch.Tensor
+        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
+        
+    Returns:
+    --------
+    torch.Tensor
+        The element-wise t-divergence values, shape (d,)
+    """
+    
+    # Check if v is positive
+    if v <= 0:
+        raise ValueError("Degrees of freedom v must be positive")
+    
+    # Ensure all inputs have the same shape
+    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
+    # Calculate t from v: t = 2/(v+1) + 1
+    dof = 2/(q-1) - 1 #degree of fredom of the univariate t distribution based on q value
+    den = 1 - q  # = -2/(v+1) 
+
+    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
+    psi = compute_psi_vectorized_ln(dof, 1)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
+
+    det_term1 = torch.exp(torch.sum(log_sigma1)/(dof+1))
+    det_term2 = torch.exp(torch.sum(log_sigma2)/(dof+1))
+
+    mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/dof
+    trace_term = torch.exp(log_sigma1 - log_sigma2)/dof
+
+    det_term = torch.exp(log_sigma1/(dof+1)) - torch.exp(log_sigma2/(dof+1))
+    if sum:
+        divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/dof
+    else:
+        divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/dof)
+    
+    return divergence
+
+
+
+def compute_t_st_old(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
     """
     Calculate the element-wise t-divergence between two d-dimensional distributions.
     
