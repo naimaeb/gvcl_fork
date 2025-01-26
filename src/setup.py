@@ -145,8 +145,10 @@ def get_args():
             from networks import zenkenet_ewc_film as network
         elif 'vclf' in args.approach:
             from networks.gvcl_models import ZenkeNetFiLM as network
-        elif 'vcl' or 'fsvi' in args.approach:
+        elif 'vcl' in args.approach:
             from networks.gvcl_models import ZenkeNetNoFiLM as network
+        elif 'fsvi'in args.approach:
+            from networks.fsvi_models import ZenkeNetNoFiLM as network
         else:   
             from networks import zenkenet as network
 
@@ -187,16 +189,21 @@ def get_args():
             print("using vclf model smnist")
             from networks.gvcl_models import SMNISTNetFiLM as network
             #print("Film_type", network.get_film_type())
-        elif 'vcl' or 'fsvi' in args.approach:
+        elif 'vcl' in args.approach:
             print("using vcl model smnist")
             from networks.gvcl_models import SMNISTNetNoFiLM as network
-        # print("Film_type", network.get_film_type())
-        
+        elif 'fsvi'in args.approach:
+            from networks.fsvi_models import SMNISTNetNoFiLM as network
         else:
             from networks import smnistnet as network
 
     elif 'omniglot' == args.experiment:
-        # use a single network for all the models
-        from networks.gvcl_models import OmniglotNet as network
+        if 'vcl' in args.approach:
+            print("using vcl model smnist")
+            from networks.gvcl_models import OmniglotNet as network
+        # print("Film_type", network.get_film_type())
+        elif 'fsvi'in args.approach:
+            from networks.fsvi_models import OmniglotNet as network
+            
 
     return args, network, approach, dataloader

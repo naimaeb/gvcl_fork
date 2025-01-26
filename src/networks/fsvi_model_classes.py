@@ -1,0 +1,542 @@
+import torch
+import torch.distributions as dist
+from torch import nn
+from torch.nn import functional as F
+from torch.nn.parameter import Parameter
+
+import math
+from torch.nn import init
+from functools import partial
+from torch.nn.modules.utils import _pair
+
+import torch
+from torch import nn
+from torch.nn import functional as F
+from torch.nn.parameter import Parameter
+from torch import distributions
+from torch.distributions.studentT import StudentT
+
+import math
+import numpy as np
+from torch.nn import init
+from functools import partial
+
+from . import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_student_t
+
+
+device = 'cuda:0'
+class MultiHeadCNN(nn.Module):
+    """Multihead CNN without FiLM"""
+    def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = False, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu"):
+        super().__init__()
+        print("fsvi model")
+        self.conv_layers = nn.ModuleList([])
+        self.fc_layers = nn.ModuleList([])
+        self.heads = nn.ModuleList([])
+        self.num_tasks = len(output_dims)
+        self.output_dims = output_dims
+
+        self.single_head = single_head
+        self.prior_var = prior_var
+        self.global_avg_pool = global_avg_pool
+        self.pool_indices = []        
+
+        self.prior_var = prior_var
+
+        if activation_fun == "relu":
+            self.act=F.relu
+        elif activation_fun == "tanh":
+            self.act=F.tanh
+        elif activation_fun == "sigmoid": 
+            self.act=F.sigmoid
+        elif activation_fun == "leaky_relu":
+            self.act=F.leaky_relu
+        else:
+            raise ValueError(f"Unknown activation function: {activation_fun}")
+
+        if len(init_vars) == 0: init_vars = -7 * np.ones([len(conv_sizes) + len(fc_sizes) + 1])
+        
+        layer_index = 0
+
+        channels = input_shape[0]
+        prev_channels = input_shape[0]
+        input_dimension = input_shape[1]
+        for i, layer_params in enumerate(conv_sizes):
+            if layer_params == 'pool':
+                self.pool_indices.append(i - len(self.pool_indices) - 1)
+                input_dimension = input_dimension//2
+                continue
+            channels = layer_params[0]
+            kernel_size = layer_params[1]
+            if(len(layer_params) == 2):
+                padding = int((kernel_size-1)/2)
+            else:
+                padding = layer_params[2]
+            conv_layer = MFConvLayer(prev_channels, channels, kernel_size=kernel_size, stride=1, padding=padding, prior_var = self.prior_var, init_var = init_vars[layer_index])
+            
+            input_dimension = int(np.floor((input_dimension+2*padding-(kernel_size-1)-1)/float(1)+1))
+            prev_channels = channels
+            self.conv_layers.append(conv_layer)
+            layer_index += 1
+
+        last_size = channels * input_dimension**2
+        
+        if global_avg_pool:
+            last_size = channels
+        
+        for i, hidden_size in enumerate(fc_sizes):
+            self.fc_layers.append(MFLinearLayer(last_size, hidden_size, prior_var = self.prior_var, init_var = init_vars[layer_index]))
+            last_size = hidden_size
+            layer_index += 1
+        
+        if single_head:
+            self.heads.append(MFLinearLayer(last_size, output_dims[0], prior_var = self.prior_var, init_var = init_vars[layer_index]))
+        else:
+            for output_dim in output_dims:
+                self.heads.append(MFLinearLayer(last_size, output_dim, prior_var = self.prior_var, init_var = init_vars[layer_index]))
+
+
+    def get_task_specific_parameters(self, task_number):
+        modules = nn.ModuleList([])
+        if not self.single_head:
+            modules.append(self.heads[task_number])
+        modules.append(self.fc_layers)
+        modules.append(self.conv_layers)
+        if self.single_head:
+            modules.append(self.heads[0])
+        
+        return modules.parameters()
+    
+    def get_all_parameters(self, task_number, prior=False):
+        all_params = []
+        if prior:
+            all_params.extend(self.heads[task_number].get_prior_params())
+            for layer in self.fc_layers:
+                all_params.extend(layer.get_prior_params())
+            for layer in self.conv_layers:
+                all_params.extend(layer.get_prior_params())
+        else: 
+            all_params.extend(self.heads[task_number].get_current_params())
+            for layer in self.fc_layers:
+                all_params.extend(layer.get_current_params())
+            for layer in self.conv_layers:
+                all_params.extend(layer.get_current_params())
+        return all_params
+
+    def to(self, device):
+        self.device = device
+        return super().to(device)
+
+    def forward(self, x, task_labels, reg_type, v, num_samples=1, tasks = None):
+        if tasks is None:
+            tasks = range(self.num_tasks)
+            excluded_tasks = []
+        else:
+            excluded_tasks = [i for i in range(self.num_tasks) if i not in tasks]
+
+        outputs = [None for j in range(self.num_tasks)]
+
+        batch_size = x.shape[0]
+        if reg_type=="t_st":x = x.repeat([num_samples,1,1,1,1])
+        else:x = x.repeat([num_samples,1,1,1])
+        
+        for i, conv_layer in enumerate(self.conv_layers):
+            x = conv_layer(x,reg_type,v, num_samples)  
+            x = self.act(x) 
+            if i in self.pool_indices:
+                if reg_type=="t_st":x = x.view(-1, *x.shape[2:])
+                x = F.max_pool2d(x, kernel_size = 2, stride = 2)
+                if reg_type=="t_st":x = x.view(num_samples, batch_size, *x.shape[1:])
+        
+        if self.global_avg_pool:
+            x = x.view(num_samples, batch_size, x.shape[1], -1).mean(-1)
+        else:
+            x = x.view(num_samples, batch_size, -1)
+        
+        for i, layer in enumerate(self.fc_layers):
+            x = layer(x, reg_type,v) 
+            x = self.act(x)
+            
+        self.pre_head = x
+
+        for j in tasks:
+            head_index = 0 if self.single_head else j
+            task_output = self.heads[head_index](x,reg_type,v)
+            outputs[j] = task_output.reshape([num_samples, batch_size, -1])
+        for j in excluded_tasks:
+            outputs[j] = torch.zeros_like(task_output, device = device)
+
+        return outputs
+    
+    
+    def collect_all_variances_vector(self, task, prior=False):
+        all_vars = []
+        for layer in self.fc_layers:
+            all_vars.append(layer.get_var(prior))
+        for layer in self.conv_layers:
+            all_vars.append(layer.get_var(prior))
+        all_vars.append(self.heads[task].get_var(prior))
+        return torch.cat([torch.flatten(var) for var_pair in all_vars for var in var_pair])
+
+
+    def set_prior_grads(self, flag):
+        for layer in self.fc_layers:
+            layer.set_prior_grads(flag)
+        for layer in self.conv_layers:
+            layer.set_prior_grads(flag)
+
+    def forward_mean(self, x, task_labels, reg_type, v, tasks = None, prior=False):
+        if tasks is None:
+            tasks = range(self.num_tasks)
+            excluded_tasks = []
+        else:
+            excluded_tasks = [i for i in range(self.num_tasks) if i not in tasks]
+
+        outputs = [None for j in range(self.num_tasks)]
+
+        batch_size = x.shape[0]
+        for i, conv_layer in enumerate(self.conv_layers):
+            x = conv_layer.forward_mean(x,reg_type,v, prior=prior)  
+            x = self.act(x) 
+            if i in self.pool_indices:
+                x = F.max_pool2d(x, kernel_size = 2, stride = 2)
+        
+        if self.global_avg_pool:
+            x = x.view(batch_size, x.shape[1], -1).mean(-1)
+        else:
+            x = x.view(batch_size, -1)
+        
+        for i, layer in enumerate(self.fc_layers):
+            x = layer.forward_mean(x, reg_type,v, prior=prior) 
+            x = self.act(x)
+            
+        self.pre_head = x
+
+        for j in tasks:
+            head_index = 0 if self.single_head else j
+            task_output = self.heads[head_index].forward_mean(x,reg_type,v, prior=prior)
+            outputs[j] = task_output.reshape([batch_size, -1])
+        for j in excluded_tasks:
+            outputs[j] = torch.zeros_like(task_output, device = device)
+
+        return outputs
+
+    def get_reg(self, lamb, reg_type, q,v):
+        kl = 0
+
+        for i, conv_layer in enumerate(self.conv_layers):
+            kl += conv_layer.get_reg(lamb, reg_type, q, v)
+        
+        for layer in self.fc_layers:
+            kl += layer.get_reg(lamb, reg_type, q, v)
+
+        for t, layer in enumerate(self.heads):
+            kl += layer.get_reg(lamb, reg_type, q, v)
+
+        return kl
+    
+    def add_task_body_params(self, updated_tasks,keep_grad_mean=False):
+        for layer in self.fc_layers:
+            layer.add_new_task(keep_grad_mean = keep_grad_mean)
+        for layer in self.conv_layers:
+            layer.add_new_task(keep_grad_mean = keep_grad_mean)
+        if self.single_head:
+            self.heads[0].add_new_task(keep_grad_mean=keep_grad_mean, reset_variance = False)
+        if not self.single_head:
+            for t in updated_tasks:
+                self.heads[t].add_new_task(keep_grad_mean=keep_grad_mean, reset_variance = False)
+
+
+class MFConvLayer(torch.nn.modules.conv._ConvNd):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1,
+                 bias=True, padding_mode='zeros', prior_var = 1, init_var = -7):
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        dilation = _pair(dilation)
+        super().__init__(
+            in_channels, out_channels, kernel_size, stride, padding, dilation,
+            False, _pair(0), groups, bias, padding_mode)
+        
+        self.init_var = init_var
+        
+        self.W_prior_mean = Parameter(torch.zeros(self.weight.shape))
+        self.b_prior_mean = Parameter(torch.zeros(self.bias.shape))
+        
+        self.prior_var = prior_var
+        self.W_prior_var = torch.ones(self.weight.shape, device = device).mul(np.log(self.prior_var))
+        self.b_prior_var = torch.ones(self.bias.shape, device = device).mul(np.log(self.prior_var))
+
+        self.weight_var = Parameter(torch.Tensor(self.weight.shape))
+        self.bias_var = Parameter(torch.Tensor(self.bias.shape))
+
+        
+        self.reset_parameters()
+
+    def get_prior_params(self):
+        return [self.W_prior_mean, self.b_prior_mean]
+
+    def get_current_params(self):
+        return [self.weight, self.bias]
+    
+    def conv2d_forward(self, input, weight, bias):
+        if self.padding_mode == 'circular':
+            expanded_padding = ((self.padding[1] + 1) // 2, self.padding[1] // 2,
+                                (self.padding[0] + 1) // 2, self.padding[0] // 2)
+            return F.conv2d(F.pad(input, expanded_padding, mode='circular'),
+                            weight, bias, self.stride,
+                            _pair(0), self.dilation, self.groups)
+        return F.conv2d(input, weight, bias, self.stride,
+                        self.padding, self.dilation, self.groups)
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        if hasattr(self, 'weight_var'):
+            init.constant_(self.weight_var, self.init_var)
+            init.constant_(self.bias_var, self.init_var)
+
+    def add_new_task(self, keep_grad_mean=False):
+        self.W_prior_mean = nn.Parameter(self.weight.data)
+        self.b_prior_mean = nn.Parameter(self.bias.data)
+        
+        self.W_prior_var = self.weight_var.clone().detach().requires_grad_(False)
+        self.b_prior_var = self.bias_var.clone().detach().requires_grad_(False)
+        
+        self.weight_var.data = torch.min(self.weight_var, self.init_var*torch.ones_like(self.weight_var).data)
+        self.bias_var.data = torch.min(self.bias_var, self.init_var*torch.ones_like(self.bias_var).data)
+
+        fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+        bound = 1 / math.sqrt(fan_in)
+
+        initialization_noise = torch.empty_like(self.weight)
+        init.kaiming_uniform_(initialization_noise, a = math.sqrt(5))
+        # self.weight.data = self.weight.data + (self.weight_var > -2).float() * initialization_noise
+        # self.bias.data = self.bias.data + (self.bias_var > -2).float() * torch.empty_like(self.bias).uniform_(-bound, bound)
+
+        self.weight.data = initialization_noise.data
+        self.bias.data = torch.empty_like(self.bias).uniform_(-bound, bound).data
+
+    def get_var(self, prior=False):
+        if prior:
+            return [torch.exp(self.W_prior_var), torch.exp(self.b_prior_var)]
+        else:
+            return [torch.exp(self.weight_var), torch.exp(self.bias_var)]
+        
+    def get_kl(self, lamb):
+
+        W_kl = compute_kl_g(self.weight, self.weight_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_g(self.bias, self.bias_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+
+        return W_kl + b_kl
+
+    def get_reg(self, lamb, reg_type, q, v):
+        '''
+        Function that computes either of the possible 4 regularization types;
+        1. KL between two Gaussians
+        2. Renyi of degree q between two Gaussians
+        3. KL between two q-gaussians (of order q)
+        4. Renyi between two q-gaussians (of order q)
+
+        Returns:
+        divergence value (torch.float)
+        '''
+        if reg_type == 'kl_g':
+            kl_function = compute_kl_g
+        elif reg_type == 're_g':
+            kl_function = compute_re_g
+        elif reg_type == "kl_qg":
+            kl_function = compute_kl_qg
+        elif reg_type == "t_st":
+            kl_function = compute_t_st
+        else:
+            raise ValueError(f"Unknown regularization type: {reg_type}")
+
+        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        return W_kl + b_kl
+
+
+    def forward_t_st(self, input, v, num_samples=1):
+
+        outputs = []
+        for i in range(num_samples):
+            W_eps = sample_student_t(self.weight.shape, v, device=device)
+            W_sigma = torch.sqrt(torch.exp(self.weight_var))
+            weight = self.weight + W_eps * W_sigma
+
+            bias_eps = sample_student_t(self.bias.shape, v, device=device)
+            bias_sigma = torch.sqrt(torch.exp(self.bias_var))
+            bias = self.bias + bias_eps * bias_sigma
+
+            outputs.append(self.conv2d_forward(input[i], weight, bias))
+
+        return torch.stack(outputs)
+
+
+    def forward_t_st_prior(self, input, v, num_samples=1):
+
+        outputs = []
+        for i in range(num_samples):
+            W_eps = sample_student_t(self.weight.shape, v, device=device)
+            W_sigma = torch.sqrt(torch.exp(self.W_prior_var))
+            weight = self.W_prior_mean + W_eps * W_sigma
+
+            bias_eps = sample_student_t(self.bias.shape, v, device=device)
+            bias_sigma = torch.sqrt(torch.exp(self.b_prior_mean))
+            bias = self.b_prior_var + bias_eps * bias_sigma
+
+            outputs.append(self.conv2d_forward(input[i], weight, bias))
+
+        return torch.stack(outputs)
+
+    def forward(self, input, reg_type, v, num_samples=-1):
+        if reg_type=="t_st":
+            return self.forward_t_st(input, v, num_samples)
+        
+        output_mean =  self.conv2d_forward(input, self.weight, self.bias)
+        output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
+
+        if reg_type == 't_st':
+            #print("Student-t sampling")
+            eps = sample_student_t(output_mean.shape, v, device=device)
+        else:
+            #print("Normal sampling")
+            eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+        output = output_mean + torch.sqrt(output_var + 1e-9) * eps
+
+        return output
+    
+    def set_prior_grads(self, flag):
+        self.W_prior_mean.requires_grad = flag
+        self.b_prior_mean.requires_grad = flag
+
+    def forward_mean(self, input, reg_type, v, num_samples=-1, prior=False):
+        if not prior:
+            return self.conv2d_forward(input, self.weight, self.bias)
+
+        return  self.conv2d_forward(input, self.W_prior_mean, self.b_prior_mean)
+
+class MFLinearLayer(nn.Module):
+    def __init__(self, dim_in, dim_out, prior_var = 1, init_var = -7):
+        super().__init__()
+        self.init_var = init_var
+        self.dim_in = dim_in
+        self.dim_out = dim_out
+        self.W_mean = Parameter(torch.Tensor(dim_out, dim_in))
+        self.b_mean = Parameter(torch.Tensor(dim_out))
+
+        self.W_var = Parameter(torch.Tensor(dim_out, dim_in))
+        self.b_var = Parameter(torch.Tensor(dim_out))
+
+        self.W_prior_mean = Parameter(torch.zeros([dim_out, dim_in]))
+        self.b_prior_mean = Parameter(torch.zeros([dim_out]))
+
+        self.prior_var = prior_var
+        
+        self.W_prior_var = torch.ones([dim_out, dim_in], device = device).mul(np.log(self.prior_var))
+        self.b_prior_var = torch.ones([dim_out], device = device).mul(np.log(self.prior_var))
+
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        init.kaiming_uniform_(self.W_mean, a=math.sqrt(5))
+
+        fan_in, _ = init._calculate_fan_in_and_fan_out(self.W_mean)
+        bound = 1 / math.sqrt(fan_in)
+        init.uniform_(self.b_mean, -bound, bound)
+
+        init.constant_(self.W_var, self.init_var)
+        init.constant_(self.b_var, self.init_var)
+
+
+    def get_prior_params(self):
+        return [self.W_prior_mean, self.b_prior_mean]
+    
+
+    def get_current_params(self):
+        return [self.W_mean, self.b_mean]
+    
+    def add_new_task(self, reset_variance = True, keep_grad_mean=False):
+        self.W_prior_mean = nn.Parameter(self.W_mean.data, requires_grad=keep_grad_mean)
+        self.b_prior_mean = nn.Parameter(self.b_mean.data, requires_grad=keep_grad_mean)
+    
+        self.W_prior_var = self.W_var.clone().detach().requires_grad_(False)
+        self.b_prior_var = self.b_var.clone().detach().requires_grad_(False)
+        
+        if reset_variance:
+            self.W_var.data = torch.min(self.W_var, self.init_var*torch.ones_like(self.W_var).data)
+            self.b_var.data = torch.min(self.b_var, self.init_var*torch.ones_like(self.b_var).data)
+
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.W_mean)
+            bound = 1 / math.sqrt(fan_in)
+
+            initialization_noise = torch.empty_like(self.W_mean)
+            init.kaiming_uniform_(initialization_noise, a = math.sqrt(5))
+            # self.W_mean.data = self.W_mean.data + (self.W_var > -2).float() * initialization_noise
+            # self.b_mean.data = self.b_mean.data + (self.b_var > -2).float() * torch.empty_like(self.b_mean).uniform_(-bound, bound)
+
+            self.W_mean.data = initialization_noise.data
+            self.b_mean.data = torch.empty_like(self.b_mean).uniform_(-bound, bound).data
+
+    def get_kl(self, lamb):
+        W_kl = compute_kl_g(self.W_mean, self.W_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_g(self.b_mean, self.b_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        return W_kl + b_kl
+
+    def get_reg(self, lamb, reg_type, q, v):
+        '''
+        Function that computes either of the possible 4 regularization types;
+        1. KL between two Gaussians
+        2. Renyi of degree q between two Gaussians
+        3. KL between two q-gaussians (of order q)
+        4. Renyi between two q-gaussians (of order q)
+
+        Returns:
+        divergence value (torch.float)
+        '''
+        if reg_type == 'kl_g':
+            kl_function = compute_kl_g
+        elif reg_type == 're_g':
+            kl_function = compute_re_g
+        elif reg_type == "kl_qg":
+            kl_function = compute_kl_qg
+        elif reg_type == "t_st":
+            kl_function = compute_t_st
+        else:
+            raise ValueError(f"Unknown regularization type: {reg_type}")
+
+        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        return W_kl + b_kl
+
+    def forward(self, x, reg_type, v):
+        output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
+        output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
+        if  reg_type == 't_st':
+            #print("Student-t sampling")
+            eps = sample_student_t(output_mean.shape, v, device=device)
+        else:
+            #print("Normal sampling")
+            eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+
+        output = output_mean + (eps * output_std)
+        return output
+    
+    def get_var(self, prior=False):
+        if prior:
+            return [torch.exp(self.W_prior_var), torch.exp(self.b_prior_var)]
+        else:
+            return [torch.exp(self.W_var), torch.exp(self.b_var)]
+
+    def set_prior_grads(self, flag):
+        self.W_prior_mean.requires_grad = flag
+        self.b_prior_mean.requires_grad = flag
+
+    def forward_mean(self, x, reg_type, v, prior=False):
+        if not prior:
+            return x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
+        
+        return x.matmul(self.W_prior_mean.t()) + self.b_prior_mean.unsqueeze(0).unsqueeze(0)
+

@@ -193,14 +193,11 @@ class Appr(ApprBase):
     def compute_functional_regularizer(self, t, x, y):
 
         # Forward prior model
-        if t>0:
-            self.model.zero_grad()
-            outputs_mean_prior=self.model.forward_mean(x, y, self.reg_type, v = self.v, tasks = [t], prior=True)
-            output_mean_prior=outputs_mean_prior[t].mean(dim = 0)
-            grad_prior = self.compute_grads(output_mean_prior, t, prior=True) 
+        self.model.zero_grad()
+        outputs_mean_prior=self.model.forward_mean(x, y, self.reg_type, v = self.v, tasks = [t], prior=True)
+        output_mean_prior=outputs_mean_prior[t].mean(dim = 0)
+        grad_prior = self.compute_grads(output_mean_prior, t, prior=True) 
             
-            
-
         # Forward current model
         self.model.zero_grad()
         outputs_mean=self.model.forward_mean(x, y, self.reg_type, v = self.v, tasks = [t], prior=False)
@@ -210,15 +207,8 @@ class Appr(ApprBase):
         prior_var = self.model.collect_all_variances_vector(t, prior=True)
         var = self.model.collect_all_variances_vector(t, prior=False)
 
+        K_p =  torch.matmul(prior_var.unsqueeze(0)*grad_prior.t(),grad_prior) # equation (12) in the paper 
         K_q =  torch.matmul(var.unsqueeze(0)*grad.t(),grad) # equation (13) in the paper
-
-        if t==0: 
-            grad_prior = torch.zeros_like(grad)
-            output_mean_prior = torch.zeros_like(output_mean)
-            K_p =  torch.zeros_like(K_q) # equation (12) in the paper 
-        else:
-            K_p =  torch.matmul(prior_var.unsqueeze(0)*grad_prior.t(),grad_prior) # equation (12) in the paper 
-
 
 
         #scale kl term by beta and dataset size
