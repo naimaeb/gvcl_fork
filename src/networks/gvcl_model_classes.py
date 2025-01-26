@@ -867,10 +867,6 @@ def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, i
     
     # Common denominator terms: for t larger than 1 (the case that we are considering, den is negative)
 
-
-    
-    # Calculate each term (element-wise operations) check whether the signs should actually be flipped
-    term1 = (1 + 1/v)
     det_term1 = torch.exp(torch.sum(log_sigma1)/(v+1))
     det_term2 = torch.exp(torch.sum(log_sigma2)/(v+1))
     #mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
