@@ -21,7 +21,7 @@ import numpy as np
 from torch.nn import init
 from functools import partial
 
-from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t
+from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t, compute_re_qg, compute_kl_qg
 
 
 device = 'cuda:0'
@@ -552,7 +552,7 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
-            kl_function == compute_t_st_mf
+            kl_function = compute_t_st_mf
     
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
@@ -707,7 +707,7 @@ class MFLinearLayer(nn.Module):
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
-            kl_function == compute_t_st_mf
+            kl_function = compute_t_st_mf
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 

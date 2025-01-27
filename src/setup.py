@@ -20,7 +20,7 @@ def get_args():
     parser.add_argument('--q', default = 1.01, type=float, required=False)
     parser.add_argument('--v',type=int,default=1,help='(default=%(default)f)')
     parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
-    parser.add_argument('--nepochs',default=-1,type=int,required=False,help='(default=%(default)d)')
+    parser.add_argument('--nepochs', nargs='+', type=int, required=False, help='List of epochs for each task')
     parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
     parser.add_argument('--parameter',type=str,default='',help='(default=%(default)s)')
     parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')

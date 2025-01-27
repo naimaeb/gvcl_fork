@@ -72,6 +72,28 @@ class ApprBase(object):
     def train(self,t,xtrain,ytrain,xvalid,yvalid):
         pass
 
+    def get_training_epochs(self, dataset_len, t): 
+        #making sure every dataset has the same # of gradient passes irrespective of dataset size
+        if len(self.nepochs)>t: 
+            return self.nepochs[t]
+
+        if t == 0:
+            self.first_train_size = dataset_len
+            num_epochs_to_train = self.nepochs[0]
+
+            #correction if the task order is permuted (for mixture)
+            if 'mixture' == self.exp:
+                self.first_train_size = 20600 #size of facescrub
+                num_epochs_to_train = int(round(self.nepochs[0] * self.first_train_size/dataset_len))
+        
+        if t > 0 and self.equalize_epochs:
+            num_epochs_to_train = int(round(self.nepochs[0] * self.first_train_size/dataset_len))
+        
+        
+        return num_epochs_to_train
+
+        
+
     def train_epoch(self,t,x,y):
         pass
 

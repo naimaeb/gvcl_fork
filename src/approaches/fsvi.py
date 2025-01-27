@@ -13,7 +13,7 @@ from . import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_st
 class Appr(ApprBase):
     """ Class implementing S-FSVI approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=100, sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , diagonal=True, context=50, args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , diagonal=True, context=50, args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -68,18 +68,8 @@ class Appr(ApprBase):
 
     def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
 
-        #making sure every dataset has the same # of gradient passes irrespective of dataset size
-        if t == 0:
-            self.first_train_size = len(xtrain)
-            num_epochs_to_train = self.nepochs
-
-            #correction if the task order is permuted (for mixture)
-            if 'mixture' == self.exp:
-                self.first_train_size = 20600 #size of facescrub
-                num_epochs_to_train = int(round(self.nepochs * self.first_train_size/len(xtrain)))
-        if t > 0 and self.equalize_epochs:
-            num_epochs_to_train = int(round(self.nepochs * self.first_train_size/len(xtrain)))
         
+        num_epochs_to_train = self.get_training_epochs(len(xtrain), self.first_train_size, t)
         print('training for {} epochs'.format(num_epochs_to_train))
 
         lr=self.lr
@@ -213,8 +203,8 @@ class Appr(ApprBase):
             raise NotImplementedError 
         
         # prior_var and var are both in the log space
-        exp_prior_var = torch.exp(prior_var.unsqueeze(1))
-        exp_var = torch.exp(var.unsqueeze(1))
+        exp_prior_var = prior_var.unsqueeze(1)#torch.exp(prior_var.unsqueeze(1))
+        exp_var = var.unsqueeze(1)#torch.exp(var.unsqueeze(1))
         K_p_diagonal = torch.log(torch.sum(exp_prior_var * grad_prior * grad_prior, dim=0))
         K_q_diagonal = torch.log(torch.sum(exp_var * grad * grad, dim=0))
 
