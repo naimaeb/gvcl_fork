@@ -185,7 +185,7 @@ class MultiHeadCNN(nn.Module):
         for layer in self.conv_layers:
             layer.set_prior_grads(flag)
 
-    def forward_mean(self, x, task_labels, reg_type, v, tasks = None, prior=False):
+    def forward_mean(self, x, reg_type, v, tasks = None, prior=False):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []

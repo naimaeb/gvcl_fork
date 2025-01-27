@@ -498,9 +498,9 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             init.constant_(self.weight_var, self.init_var)
             init.constant_(self.bias_var, self.init_var)
 
-    def add_new_task(self, keep_grad_mean=False):
-        self.W_prior_mean = nn.Parameter(self.weight.data)
-        self.b_prior_mean = nn.Parameter(self.bias.data)
+    def add_new_task(self):
+        self.W_prior_mean = self.weight.clone().detach().requires_grad_(False)
+        self.b_prior_mean = self.bias.clone().detach().requires_grad_(False)
         
         self.W_prior_var = self.weight_var.clone().detach().requires_grad_(False)
         self.b_prior_var = self.bias_var.clone().detach().requires_grad_(False)
@@ -527,8 +527,8 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         
     def get_kl(self, lamb):
 
-        W_kl = compute_kl_g(self.weight, self.weight_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-        b_kl = compute_kl_g(self.bias, self.bias_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        W_kl = compute_kl_g(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_g(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
 
         return W_kl + b_kl
 
@@ -554,8 +554,8 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
-        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
 
 
@@ -608,16 +608,12 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         output = output_mean + torch.sqrt(output_var + 1e-9) * eps
 
         return output
-    
-    def set_prior_grads(self, flag):
-        self.W_prior_mean.requires_grad = flag
-        self.b_prior_mean.requires_grad = flag
+
 
     def forward_mean(self, input, reg_type, v, num_samples=-1, prior=False):
         if not prior:
             return self.conv2d_forward(input, self.weight, self.bias)
 
-        print(prior)
         return  self.conv2d_forward(input, self.W_prior_mean, self.b_prior_mean)
 
 class MFLinearLayer(nn.Module):
@@ -632,8 +628,8 @@ class MFLinearLayer(nn.Module):
         self.W_var = Parameter(torch.Tensor(dim_out, dim_in))
         self.b_var = Parameter(torch.Tensor(dim_out))
 
-        self.W_prior_mean = Parameter(torch.zeros([dim_out, dim_in]))
-        self.b_prior_mean = Parameter(torch.zeros([dim_out]))
+        self.W_prior_mean = torch.zeros([dim_out, dim_in], device=device)
+        self.b_prior_mean = torch.zeros([dim_out], device=device)
 
         self.prior_var = prior_var
         
@@ -662,8 +658,8 @@ class MFLinearLayer(nn.Module):
         return [self.W_mean, self.b_mean]
     
     def add_new_task(self, reset_variance = True, keep_grad_mean=False):
-        self.W_prior_mean = nn.Parameter(self.W_mean.data, requires_grad=keep_grad_mean)
-        self.b_prior_mean = nn.Parameter(self.b_mean.data, requires_grad=keep_grad_mean)
+        self.W_prior_mean = self.W_mean.clone().detach().requires_grad_(False)
+        self.b_prior_mean = self.b_mean.clone().detach().requires_grad_(False)
     
         self.W_prior_var = self.W_var.clone().detach().requires_grad_(False)
         self.b_prior_var = self.b_var.clone().detach().requires_grad_(False)
@@ -684,8 +680,8 @@ class MFLinearLayer(nn.Module):
             self.b_mean.data = torch.empty_like(self.b_mean).uniform_(-bound, bound).data
 
     def get_kl(self, lamb):
-        W_kl = compute_kl_g(self.W_mean, self.W_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
-        b_kl = compute_kl_g(self.b_mean, self.b_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        W_kl = compute_kl_g(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
+        b_kl = compute_kl_g(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, lamb = lamb, initial_prior_var = self.prior_var)
         return W_kl + b_kl
 
     def get_reg(self, lamb, reg_type, q, v):
@@ -710,8 +706,8 @@ class MFLinearLayer(nn.Module):
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
-        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean.clone().detach().requires_grad_(False), self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean.clone().detach().requires_grad_(False), self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl
 
     def forward(self, x, reg_type, v):

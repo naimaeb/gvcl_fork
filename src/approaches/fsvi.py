@@ -13,7 +13,7 @@ from . import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_st
 class Appr(ApprBase):
     """ Class implementing S-FSVI approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=100, sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=100, sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , diagonal=True, context=50, args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -29,6 +29,8 @@ class Appr(ApprBase):
 
         self.model_old=None
         self.fisher=None
+        self.diagonal=diagonal
+        self.context=context
 
         self.nepochs=nepochs
         self.sbatch=sbatch
@@ -37,12 +39,6 @@ class Appr(ApprBase):
 
         self.beta = beta
         self.lamb = lamb
-        # print("lambda", self.lamb)
-        # print("beta", self.beta)
-        # if len(args.parameter)>=1:
-        #     params=args.parameter.split(',')
-        #     self.beta= float(params[0])
-        #     self.lamb= float(params[1]) 
 
         #terms relating to the type of regularizer that will be used
         self.reg_type = reg_type #construct the 4 possible regularization cases
@@ -152,12 +148,15 @@ class Appr(ApprBase):
             else: b=r[i:]
             images = x[b]
             targets = y[b]
+
+            random_indices = torch.randint(0, x.size(0), (self.context,))
+            random_batch = x[random_indices]
         
 
             task_labels = int(t) * torch.ones_like(targets)
 
             #scale kl term by beta and dataset size
-            kl_term = self.beta * self.compute_functional_regularizer(t, images, targets)
+            kl_term = self.beta * self.compute_functional_regularizer(t, random_batch)
 
             # Forward current model
             outputs=self.model(images, task_labels, self.reg_type, v = self.v, tasks = [t], num_samples = train_samples)
@@ -190,29 +189,38 @@ class Appr(ApprBase):
 
         return epoch_class_loss/i, epoch_kl_loss/i, epoch_total_loss/i, total_hits/x.shape[0]
 
-    def compute_functional_regularizer(self, t, x, y):
+    def compute_functional_regularizer(self, t, x):
 
         # Forward prior model
         self.model.zero_grad()
-        outputs_mean_prior=self.model.forward_mean(x, y, self.reg_type, v = self.v, tasks = [t], prior=True)
+        outputs_mean_prior=self.model.forward_mean(x, self.reg_type, v = self.v, tasks = [t], prior=True)
         output_mean_prior=outputs_mean_prior[t].mean(dim = 0)
         grad_prior = self.compute_grads(output_mean_prior, t, prior=True) 
             
         # Forward current model
         self.model.zero_grad()
-        outputs_mean=self.model.forward_mean(x, y, self.reg_type, v = self.v, tasks = [t], prior=False)
+        outputs_mean=self.model.forward_mean(x, self.reg_type, v = self.v, tasks = [t], prior=False)
         output_mean=outputs_mean[t].mean(dim = 0)
         grad = self.compute_grads(output_mean, t, prior=False) 
     
         prior_var = self.model.collect_all_variances_vector(t, prior=True)
         var = self.model.collect_all_variances_vector(t, prior=False)
 
-        K_p =  torch.matmul(prior_var.unsqueeze(0)*grad_prior.t(),grad_prior) # equation (12) in the paper 
-        K_q =  torch.matmul(var.unsqueeze(0)*grad.t(),grad) # equation (13) in the paper
+        if not self.diagonal:
+            K_p =  torch.matmul(prior_var.unsqueeze(0)*grad_prior.t(),grad_prior) # equation (12) in the paper 
+            K_q =  torch.matmul(var.unsqueeze(0)*grad.t(),grad) # equation (13) in the paper
+            # note: not supported yet in the get_reg funciton
+            raise NotImplementedError 
+        
+        # prior_var and var are both in the log space
+        exp_prior_var = torch.exp(prior_var.unsqueeze(1))
+        exp_var = torch.exp(var.unsqueeze(1))
+        K_p_diagonal = torch.log(torch.sum(exp_prior_var * grad_prior * grad_prior, dim=0))
+        K_q_diagonal = torch.log(torch.sum(exp_var * grad * grad, dim=0))
 
 
         #scale kl term by beta and dataset size
-        return self.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v, K_p = K_p, K_q = K_q, mu_p=output_mean_prior, mu_q=output_mean)
+        return self.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v, K_p = K_p_diagonal, K_q = K_q_diagonal, mu_p=output_mean_prior, mu_q=output_mean)
 
     def get_reg(self, reg_type, K_p, K_q, mu_p, mu_q, lamb=1, q=1, v=1):
         if reg_type == 'kl_g':
