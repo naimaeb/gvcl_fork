@@ -16,7 +16,7 @@ def get_args():
     parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                                 'imm-mode','sgd-restart', 'ewc2', 'ewc-film', 'fsvi',
                                                                                 'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
-    parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
+    parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 't_st_mf', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
     parser.add_argument('--q', default = 1.01, type=float, required=False)
     parser.add_argument('--v',type=int,default=1,help='(default=%(default)f)')
     parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
