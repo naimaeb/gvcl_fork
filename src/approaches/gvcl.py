@@ -44,7 +44,12 @@ class Appr(ApprBase):
         #terms relating to the type of regularizer that will be used
         self.reg_type = reg_type #construct the 4 possible regularization cases
         self.q = q #degree of renyi divergence (lambda = 1 - q)
-        self.v = v #degrees of freedom of t distribution (int)(v = 2/(q-1)-1)
+        
+        if self.reg_type == 't_st_k1' or self.reg_type == 't_st_mf':
+            self.v = 2/(self.q-1)-1 #degrees of freedom of t distribution v = 2/(q-1)-1)
+        else:
+            self.v = v #dof set for t_st, but q_varies
+        
         self.train_samples = train_samples
 
         self.equalize_epochs = True

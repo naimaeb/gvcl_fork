@@ -21,7 +21,7 @@ import numpy as np
 from torch.nn import init
 from functools import partial
 
-from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t, compute_re_qg, compute_kl_qg
+from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_k1, compute_t_st_mf, sample_student_t
 
 
 device = 'cuda:0'
