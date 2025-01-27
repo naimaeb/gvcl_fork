@@ -424,7 +424,7 @@ def compute_t_st_k1(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1
     den = 1 - q  # = -2/(v+1) 
 
     # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
-    psi = (compute_psi_vectorized_ln(dof, 1)/abs(den))**(-2/(v+1)) #note abs of den is taken because after everything is negated for numerical stability
+    psi = compute_psi_vectorized_ln(dof, 1)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
 
     det_term1 = torch.exp(torch.sum(log_sigma1)/(dof+1))
     det_term2 = torch.exp(torch.sum(log_sigma2)/(dof+1))
@@ -478,7 +478,7 @@ def compute_t_st_mf(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1
     den = 1 - q  # = -2/(v+1) 
 
     # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
-    psi = (compute_psi_vectorized_ln(dof, 1)/abs(den))**(-2/(v+1)) #note abs of den is taken because after everything is negated for numerical stability
+    psi = compute_psi_vectorized_ln(dof, 1)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
 
     det_term1 = torch.exp((log_sigma1)/(dof+1))
     det_term2 = torch.exp((log_sigma2)/(dof+1))

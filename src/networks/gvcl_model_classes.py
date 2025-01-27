@@ -547,12 +547,12 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             kl_function = compute_kl_g
         elif reg_type == 're_g':
             kl_function = compute_re_g
-        elif reg_type == "kl_qg":
-            kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
             kl_function = compute_t_st_mf
+        elif reg_type == "t_st_k1":
+            kl_function = compute_t_st_k1
     
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
@@ -702,12 +702,12 @@ class MFLinearLayer(nn.Module):
             kl_function = compute_kl_g
         elif reg_type == 're_g':
             kl_function = compute_re_g
-        elif reg_type == "kl_qg":
-            kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
             kl_function = compute_t_st_mf
+        elif reg_type == "t_st_k1":
+            kl_function = compute_t_st_k1
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
