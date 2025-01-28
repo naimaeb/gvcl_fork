@@ -12,7 +12,7 @@ def get_args():
     parser=argparse.ArgumentParser(description='xxx')
     parser.add_argument('--sweep_name',type=str,help='sweep-id')
     parser.add_argument('--seed',type=int,default=0)
-    parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot'],help='(default=%(default)s)')
+    parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot','toy2d'],help='(default=%(default)s)')
     parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                                 'imm-mode','sgd-restart', 'ewc2', 'ewc-film', 'fsvi',
                                                                                 'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
@@ -63,6 +63,8 @@ def get_args():
         from dataloaders import smnist as dataloader
     elif args.experiment=='omniglot':
         from dataloaders import omniglot as dataloader
+    elif args.experiment=='toy2d':
+        from dataloaders import toy_data as dataloader
 
     # Args -- Approach
     if args.approach=='random':
@@ -205,6 +207,11 @@ def get_args():
         # print("Film_type", network.get_film_type())
         elif 'fsvi'in args.approach:
             from networks.fsvi_models import OmniglotNet as network
+   
+    elif 'toy2d' == args.experiment:
+        if 'vcl' in args.approach:
+            print("using vcl model toy")
+            from networks.gvcl_models import Toy2DNet as network
             
 
     return args, network, approach, dataloader
