@@ -85,7 +85,7 @@ class Appr(ApprBase):
 
         if t != 0:
             #update posterior to prior for everything except the first task
-            self.model.add_task_body_params([t-1],keep_grad_mean = True)    
+            self.model.add_task_body_params([t-1])    
 
 
         parameters = self.model.get_task_specific_parameters(t)
