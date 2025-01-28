@@ -21,7 +21,7 @@ import numpy as np
 from torch.nn import init
 from functools import partial
 
-from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_k1, compute_t_st_mf, sample_student_t
+from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t, compute_re_qg, compute_kl_qg
 
 
 device = 'cuda:0'
@@ -234,16 +234,16 @@ class MultiHeadCNN(nn.Module):
 
         return kl
     
-    def add_task_body_params(self, updated_tasks,keep_grad_mean=False):
+    def add_task_body_params(self, updated_tasks):
         for layer in self.fc_layers:
-            layer.add_new_task(keep_grad_mean = keep_grad_mean)
+            layer.add_new_task()
         for layer in self.conv_layers:
-            layer.add_new_task(keep_grad_mean = keep_grad_mean)
+            layer.add_new_task()
         if self.single_head:
-            self.heads[0].add_new_task(keep_grad_mean=keep_grad_mean, reset_variance = False)
+            self.heads[0].add_new_task(reset_variance = False)
         if not self.single_head:
             for t in updated_tasks:
-                self.heads[t].add_new_task(keep_grad_mean=keep_grad_mean, reset_variance = False)
+                self.heads[t].add_new_task(reset_variance = False)
 
 
 class MultiHeadFiLMCNN(nn.Module):
@@ -547,12 +547,12 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             kl_function = compute_kl_g
         elif reg_type == 're_g':
             kl_function = compute_re_g
+        elif reg_type == "kl_qg":
+            kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
             kl_function = compute_t_st_mf
-        elif reg_type == "t_st_k1":
-            kl_function = compute_t_st_k1
     
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
@@ -660,7 +660,7 @@ class MFLinearLayer(nn.Module):
     def get_current_params(self):
         return [self.W_mean, self.b_mean]
     
-    def add_new_task(self, reset_variance = True, keep_grad_mean=False):
+    def add_new_task(self, reset_variance = True):
         self.W_prior_mean = self.W_mean.clone().detach().requires_grad_(False)
         self.b_prior_mean = self.b_mean.clone().detach().requires_grad_(False)
     
@@ -702,12 +702,12 @@ class MFLinearLayer(nn.Module):
             kl_function = compute_kl_g
         elif reg_type == 're_g':
             kl_function = compute_re_g
+        elif reg_type == "kl_qg":
+            kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
             kl_function = compute_t_st_mf
-        elif reg_type == "t_st_k1":
-            kl_function = compute_t_st_k1
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
