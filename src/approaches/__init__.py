@@ -74,8 +74,6 @@ class ApprBase(object):
 
     def get_training_epochs(self, dataset_len, t): 
         #making sure every dataset has the same # of gradient passes irrespective of dataset size
-        if len(self.nepochs)>t: 
-            return self.nepochs[t]
 
         if t == 0:
             self.first_train_size = dataset_len
@@ -85,10 +83,17 @@ class ApprBase(object):
             if 'mixture' == self.exp:
                 self.first_train_size = 20600 #size of facescrub
                 num_epochs_to_train = int(round(self.nepochs[0] * self.first_train_size/dataset_len))
+            
+            return num_epochs_to_train
         
-        if t > 0 and self.equalize_epochs:
+        # t > 0 here 
+
+        if len(self.nepochs)>t: 
+            return self.nepochs[t]
+        
+        if self.equalize_epochs:
             num_epochs_to_train = int(round(self.nepochs[0] * self.first_train_size/dataset_len))
-        
+        else: num_epochs_to_train + self.nepochs[0]
         
         return num_epochs_to_train
 

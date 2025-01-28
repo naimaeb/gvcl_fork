@@ -1,5 +1,4 @@
 from networks.gvcl_model_classes import MultiHeadFiLMCNN, MultiHeadCNN
-from networks.fsvi_model_classes import MultiHeadCNN as FSVIMultiHeadCNN
 
 #note that the default film type is point, so film and no film do the same
 class BabyNetNoFiLM:

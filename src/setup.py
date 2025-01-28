@@ -24,7 +24,7 @@ def get_args():
     parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
     parser.add_argument('--parameter',type=str,default='',help='(default=%(default)s)')
     parser.add_argument('--ntasks',type=int,default=-1,help='(default=%(default)s)')
-    parser.add_argument('--context',type=int,default=None,help='Number of context points for FSVI')
+    parser.add_argument('--context',type=int, help='Number of context points for FSVI')
     parser.add_argument('--momentum',type=float,default=0.9,help='(default=%(default)f)')
     parser.add_argument('--weight_decay',type=float,default=0.0001,help='(default=%(default)f)')
     parser.add_argument('--beta',type=float,default=1,help='(default=%(default)f)')

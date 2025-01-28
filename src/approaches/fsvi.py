@@ -69,7 +69,7 @@ class Appr(ApprBase):
     def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
 
         
-        num_epochs_to_train = self.get_training_epochs(len(xtrain), self.first_train_size, t)
+        num_epochs_to_train = self.get_training_epochs(len(xtrain), t)
         print('training for {} epochs'.format(num_epochs_to_train))
 
         lr=self.lr
