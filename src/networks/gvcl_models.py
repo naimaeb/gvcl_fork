@@ -37,6 +37,12 @@ class SMNISTNetFiLM:
             heads = [t[1] for t in taskcla]
             super().__init__((1,28,28), [], [256,256], heads, film_type = 'scale')
 
+class Toy2DNet:
+    class Net(MultiHeadCNN):
+        def __init__(self, inputsize,taskcla):
+            heads = [t[1] for t in taskcla]
+            super().__init__((1,2), [], [256,256], heads, activation_fun='relu')
+
 class AlexNetNoFiLM:
     class Net(MultiHeadFiLMCNN):
         def __init__(self, inputsize,taskcla):
