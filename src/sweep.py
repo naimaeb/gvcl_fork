@@ -185,5 +185,5 @@ wandb.agent(sweep_id, function=training_and_testing, count=40, project=wandb_set
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 're_g_vcl-nofilm-cifar-adam' --nepochs 10 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type re_g 
+# example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 're_g_vcl-nofilm-cifar-adam' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type re_g 
 # example command: CUDA_VISIBLE_DEVICES=7 python ./src/sweep.py --sweep_name 're_g_vcl-nofilm-omniglot-adam' --nepochs 200 10 10 10 10 10 10 10 10 10 --experiment omniglot --train_samples 4 --approach gvcl --seed 14 --reg_type re_g --ntasks 10

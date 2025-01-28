@@ -11,7 +11,7 @@ import wandb
 class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', experiment = "smnist", q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -78,27 +78,7 @@ class Appr(ApprBase):
     #todo: implement get optimizer with the diagonal fisher or block version of it
     def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
 
-        if self.experiment == "omniglot":
-            num_epochs_to_train = self.get_training_epochs(len(xtrain), t)
-        
-                
-        
-        if t != 0:
-            #update posterior to prior for everything except the first task
-            self.model.add_task_body_params([t-1])
-        
-        #making sure every dataset has the same # of gradient passes irrespective of dataset size
-        if t == 0:
-            self.first_train_size = len(xtrain)
-            num_epochs_to_train = self.nepochs
-
-            #correction if the task order is permuted (for mixture)
-            if 'mixture' == self.exp:
-                self.first_train_size = 20600 #size of facescrub
-                num_epochs_to_train = int(round(self.nepochs * self.first_train_size/len(xtrain)))
-        if t > 0 and self.equalize_epochs:
-            num_epochs_to_train = int(round(self.nepochs * self.first_train_size/len(xtrain)))
-
+        num_epochs_to_train = self.get_training_epochs(len(xtrain), t)
         print('training for {} epochs'.format(num_epochs_to_train))
 
         lr=self.lr
