@@ -27,6 +27,8 @@ from torch.nn import init
 from functools import partial
 from math import gamma as gamma_function
 
+from torch.distributions import MultivariateNormal, kl_divergence
+
 ########################################################################################################################
 
 def print_model_report(model):
@@ -187,6 +189,14 @@ def is_number(s):
 ########################################################################################################################
 
 
+def compute_kl_g_full(mu_q, K_q, mu_p, K_p,  **kwargs):
+    try: 
+        p = MultivariateNormal(mu_p, covariance_matrix=K_p)
+        q = MultivariateNormal(mu_q, covariance_matrix=K_q)
+    except ValueError: # distributions don't accept nan values
+        return torch.Tensor([torch.nan]).to(mu_p.device)
+    return kl_divergence(p, q)
+    
 def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum = True, lamb = 1, initial_prior_var = 1):
     #print("mean shape:", mean.shape)
     #print("exp_var shape:", exp_var.shape)

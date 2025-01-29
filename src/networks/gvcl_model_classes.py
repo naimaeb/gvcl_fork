@@ -21,7 +21,7 @@ import numpy as np
 from torch.nn import init
 from functools import partial
 
-from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_k1, compute_t_st_mf, sample_student_t
+from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t, compute_re_qg, compute_kl_qg
 
 
 device = 'cuda:0'
@@ -547,8 +547,8 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             kl_function = compute_kl_g
         elif reg_type == 're_g':
             kl_function = compute_re_g
-        elif reg_type == "t_st_k1":
-            kl_function = compute_t_st_k1
+        elif reg_type == "kl_qg":
+            kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
@@ -702,8 +702,8 @@ class MFLinearLayer(nn.Module):
             kl_function = compute_kl_g
         elif reg_type == 're_g':
             kl_function = compute_re_g
-        elif reg_type == "t_st_k1":
-            kl_function = compute_t_st_k1
+        elif reg_type == "kl_qg":
+            kl_function = compute_kl_qg
         elif reg_type == "t_st":
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":

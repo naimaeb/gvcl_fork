@@ -8,7 +8,9 @@ from approaches import ApprBase
 import utils
 import wandb
 
-from . import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_student_t
+from torch.distributions import MultivariateNormal, kl_divergence
+
+from . import compute_kl_g, compute_re_g, compute_kl_qg, compute_t_st, sample_student_t, compute_kl_g_full
 
 class Appr(ApprBase):
     """ Class implementing S-FSVI approach"""
@@ -182,35 +184,44 @@ class Appr(ApprBase):
     def compute_functional_regularizer(self, t, x):
 
         # Forward prior model
-        self.model.zero_grad()
         outputs_mean_prior=self.model.forward_mean(x, self.reg_type, v = self.v, tasks = [t], prior=True)
-        output_mean_prior=outputs_mean_prior[t].mean(dim = 0)
-        grad_prior = self.compute_grads(output_mean_prior, t, prior=True) 
-            
+        output_mean_prior=outputs_mean_prior[t] # N x P 
         # Forward current model
-        self.model.zero_grad()
         outputs_mean=self.model.forward_mean(x, self.reg_type, v = self.v, tasks = [t], prior=False)
-        output_mean=outputs_mean[t].mean(dim = 0)
-        grad = self.compute_grads(output_mean, t, prior=False) 
-    
-        prior_var = self.model.collect_all_variances_vector(t, prior=True)
-        var = self.model.collect_all_variances_vector(t, prior=False)
+        output_mean=outputs_mean[t] # N x P 
 
-        if not self.diagonal:
+        prior_var = self.model.collect_all_variances_vector(t, prior=True)  # D x 1 
+        var = self.model.collect_all_variances_vector(t, prior=False) # D x 1
+
+        total_reg = 0
+        for i in range(output_mean.shape[1]): # splitting across output dimension
+            self.model.zero_grad()
+            grad_prior, grad_names_prior = self.compute_grads(output_mean_prior[:, i], t, prior=True)  # N x D
+            grad_prior = grad_prior.detach().clone()
+            self.model.zero_grad()
+            grad, grad_names = self.compute_grads(output_mean[:, i], t, prior=False)  # D x N  
+            grad = grad.detach().clone()
+
+            # for debugging: print(grad_names_prior); print(grad_names)
+
             K_p =  torch.matmul(prior_var.unsqueeze(0)*grad_prior.t(),grad_prior) # equation (12) in the paper 
             K_q =  torch.matmul(var.unsqueeze(0)*grad.t(),grad) # equation (13) in the paper
-            # note: not supported yet in the get_reg funciton
-            raise NotImplementedError 
+
+            # for debugging: print(K_p) ; print(K_q)
+
+            total_reg += self.get_reg_full(self.reg_type, K_p, K_q, output_mean_prior[:, i], output_mean[:, i])
+
+        return total_reg
+
+    def get_reg_full(self, reg_type, K_p, K_q, mu_p, mu_q, lamb=1, q=1, v=1):
+        """Computing regularization with full covariance matrix. 
+        Supported for now are: KL regularization, .... """
+        if reg_type == 'kl_g': 
+            kl_function = compute_kl_g_full
+        else:
+            raise ValueError(f"Unknown regularization type: {reg_type}")
         
-        # prior_var and var are both in the log space
-        exp_prior_var = prior_var.unsqueeze(1)#torch.exp(prior_var.unsqueeze(1))
-        exp_var = var.unsqueeze(1)#torch.exp(var.unsqueeze(1))
-        K_p_diagonal = torch.log(torch.sum(exp_prior_var * grad_prior * grad_prior, dim=0))
-        K_q_diagonal = torch.log(torch.sum(exp_var * grad * grad, dim=0))
-
-
-        #scale kl term by beta and dataset size
-        return self.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v, K_p = K_p_diagonal, K_q = K_q_diagonal, mu_p=output_mean_prior, mu_q=output_mean)
+        return kl_function(mu_q, K_q, mu_p, K_p, q=q, v=v, lamb=lamb)
 
     def get_reg(self, reg_type, K_p, K_q, mu_p, mu_q, lamb=1, q=1, v=1):
         if reg_type == 'kl_g':
@@ -245,7 +256,7 @@ class Appr(ApprBase):
             gradients.append(torch.cat(grad))
 
         gradients = torch.stack(gradients).t()  # Shape: P x D
-        return gradients
+        return gradients, grad_names
 
     def eval(self,t,x,y):
         with torch.no_grad():
