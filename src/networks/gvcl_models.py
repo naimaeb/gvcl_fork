@@ -1,4 +1,4 @@
-from networks.gvcl_model_classes import MultiHeadFiLMCNN, MultiHeadCNN
+from networks.gvcl_model_classes import MultiHeadFiLMCNN, MultiHeadCNN, MultiHeadMLP
 
 #note that the default film type is point, so film and no film do the same
 class BabyNetNoFiLM:
@@ -38,10 +38,10 @@ class SMNISTNetFiLM:
             super().__init__((1,28,28), [], [256,256], heads, film_type = 'scale')
 
 class Toy2DNet:
-    class Net(MultiHeadCNN):
+    class Net(MultiHeadMLP):
         def __init__(self, inputsize,taskcla):
             heads = [t[1] for t in taskcla]
-            super().__init__((1,2), [], [256,256], heads, activation_fun='relu')
+            super().__init__((2), [], [32,32], heads, activation_fun='relu')
 
 class AlexNetNoFiLM:
     class Net(MultiHeadFiLMCNN):

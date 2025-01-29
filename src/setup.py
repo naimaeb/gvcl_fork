@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--seed',type=int,default=0)
     parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot','toy2d'],help='(default=%(default)s)')
     parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
-                                                                                'imm-mode','sgd-restart', 'ewc2', 'ewc-film', 'fsvi',
+                                                                                'imm-mode','sgd-restart', 'ewc2', 'ewc-film', 'fsvi', 'toy2d',
                                                                                 'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
     parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 't_st_mf', 't_st_k1', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
     parser.add_argument('--q', default = 1.01, type=float, required=False)
@@ -39,7 +39,7 @@ def get_args():
     parser.add_argument('--optimizer', type=str, default='sgd', help='Optimizer')
     args=parser.parse_args()
     if args.output=='':
-        args.output=root_path+'res/'+args.experiment+'_'+args.approach+'_'+args.reg_type+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
+        args.output=root_path+'res/'+args.experiment+'/'+args.approach+'_'+args.reg_type+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
     print('='*100)
     print('Arguments =')
     for arg in vars(args):
@@ -104,6 +104,8 @@ def get_args():
         from approaches import joint as approach
     elif args.approach=='fsvi':
         from approaches import fsvi as approach
+    elif args.approach=='toy2d':
+        from approaches import toy2d as approach
 
     # Args -- Network
     if args.experiment=='mnist2' or args.experiment=='pmnist':
@@ -209,9 +211,7 @@ def get_args():
             from networks.fsvi_models import OmniglotNet as network
    
     elif 'toy2d' == args.experiment:
-        if 'vcl' in args.approach:
-            print("using vcl model toy")
-            from networks.gvcl_models import Toy2DNet as network
+        from networks.gvcl_models import Toy2DNet as network
             
 
     return args, network, approach, dataloader
