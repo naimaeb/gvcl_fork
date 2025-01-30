@@ -181,5 +181,5 @@ wandb.finish()
 ########################################################################################################################
 
 # example command: CUDA_VISIBLE_DEVICES=1 python ./src/run.py --train_samples 3 --use-sweep True --experiment cifar --approach gvcl --seed 42 --reg_type re_g 
-# CUDA_VISIBLE_DEVICES=0 python ./src/run.py --nepochs 10 --experiment smnist --train_samples 4 --approach fsvi --seed 14 --reg_type kl_g  --lr 0.1 --sbatch 64 --optimizer sgd --context 40
+# CUDA_VISIBLE_DEVICES=3 python ./src/run.py --nepochs 10 --experiment smnist --train_samples 4 --approach fsvi --seed 14 --reg_type kl_g  --lr 0.01 --sbatch 64 --optimizer sgd --context 40  --beta 0.1
 # CUDA_VISIBLE_DEVICES=6 python ./src/run.py --nepochs 200 10 10 10 10 10 10 10 10 10 --experiment omniglot --train_samples 4 --approach gvcl --seed 14 --reg_type kl_g --lr 0.1 --sbatch 64 --optimizer sgd --ntasks 10

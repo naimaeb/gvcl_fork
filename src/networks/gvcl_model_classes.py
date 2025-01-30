@@ -27,7 +27,7 @@ from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_
 device = 'cuda:0'
 class MultiHeadCNN(nn.Module):
     """Multihead CNN without FiLM"""
-    def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = False, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu"):
+    def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = False, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu", **kwargs):
         super().__init__()
         self.conv_layers = nn.ModuleList([])
         self.fc_layers = nn.ModuleList([])
@@ -553,7 +553,6 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
             kl_function = compute_t_st
         elif reg_type == "t_st_mf":
             kl_function = compute_t_st_mf
-    
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
@@ -727,240 +726,20 @@ class MFLinearLayer(nn.Module):
 
         output = output_mean + (eps * output_std)
         return output
-
-'''
-def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum = True, lamb = 1, initial_prior_var = 1):
-    #print("mean shape:", mean.shape)
-    #print("exp_var shape:", exp_var.shape)
-    #print("prior_mean shape:", prior_mean.shape)
-    #print("prior_exp_var shape:", prior_exp_var.shape)
-    trace_term = torch.exp(exp_var - prior_exp_var)
-    if lamb != 1:
-        mean_term =  (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
-    else:
-        mean_term =  (mean - prior_mean)**2 * torch.exp(-prior_exp_var)
-    det_term = prior_exp_var - exp_var
     
-    if sum:
-        return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
-    else:
-        return 0.5 * (trace_term + mean_term + det_term - 1)
+    def get_var(self, prior=False):
+        if prior:
+            return [torch.exp(self.W_prior_var), torch.exp(self.b_prior_var)]
+        else:
+            return [torch.exp(self.W_var), torch.exp(self.b_var)]
 
+    def set_prior_grads(self, flag):
+        self.W_prior_mean.requires_grad = flag
+        self.b_prior_mean.requires_grad = flag
 
-#extend compute kl method to choose renyi between gaussians, renyi between q-gaussians, kl between q gaussians or kl begtween gaussians
-
-def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True, lamb = 1, initial_prior_var = 1):
-    """
-    Compute the Rényi divergence between univariate Gaussian posterior and prior distributions.
-    
-    Args:
-        mean (torch.Tensor): Posterior mean (shape: [n]).
-        log_var (torch.Tensor): Log-variance of the posterior (shape: [n]).
-        prior_mean (torch.Tensor): Prior mean (shape: [n]).
-        log_prior_var (torch.Tensor): Log-variance of the prior (shape: [n]).
-        alpha (float): Order of the Rényi divergence (alpha > 0, alpha != 1).
-    
-    Returns:
-        torch.Tensor: Rényi divergence for each element in the input tensor (shape: [n]).
-    """
-    # Compute posterior variance and prior variance from log-variances
-    var = torch.exp(log_var)  # Posterior variance
-    prior_var = torch.exp(log_prior_var)  # Prior variance 
-    # to check
-    prior_var_lamda = (lamb * torch.clamp(torch.exp(-log_prior_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
-
-    # Compute the mixed variance (Σ_α)^*
-    mixed_var = alpha * prior_var + (1 - alpha) * var
-
-    # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
-    if lamb != 1:
-        mahalanobis_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
-    
-    else:
-        mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
-
-    # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
-    log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
-
-    if sum:
-        return 0.5 * torch.sum(mahalanobis_term - 0.5 / (alpha - 1) * log_det_term)
-    # Combine terms to compute Rényi divergence
-    else:
-        return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)*log_det_term
-
-#def compute_psi_vectorized_ln(v, k):
-    """
-    Compute Ψ for the d-dimensional case using log gamma functions.
-    
-    Parameters:
-    -----------
-    v : float
-        Degrees of freedom (v > 0)
-    logsigma : torch.tensor 
-        Diagonal of the log covariance matrix of shape (d,)
+    def forward_mean(self, x, reg_type, v, prior=False):
+        if not prior:
+            return x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         
-    Returns:
-    --------
-    torch.Tensor
-        The computed Ψ values
-    """
-    # Compute log numerator: log(Γ((v+k)/2))
-    log_numerator = math.lgamma((v + k) / 2)
-    
-    # Compute log denominator parts
-    log_pi_v_term = math.log(math.pi * v) * (k/2)
-    log_gamma_term = math.lgamma(v/2)
-    #log_det_term = torch.sum(log_sigma)*(1/2)
-    
-    # Combine log terms
-    log_base = log_numerator - log_pi_v_term - log_gamma_term #- log_det_term
-    
-    # Compute final result in log space and then exponentiate
-    log_psi = log_base * (-2/(v + k))
-    psi = math.exp(log_psi)
-    
-    return torch.tensor(psi, dtype=torch.float32)
+        return x.matmul(self.W_prior_mean.t()) + self.b_prior_mean.unsqueeze(0).unsqueeze(0)
 
-def compute_t_st(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
-    """
-    Calculate the element-wise t-divergence between two d-dimensional distributions given the dof v.
-    
-    Parameters:
-    -----------
-    mu1 : torch.Tensor
-        Mean of the first distribution, shape (d,)
-    mu2 : torch.Tensor
-        Mean of the second distribution, shape (d,)
-    log_sigma1 : torch.Tensor
-        Log variance of the first distribution, shape (d,)
-    log_sigma2 : torch.Tensor
-        Log variance of the second distribution, shape (d,)
-    v : int or torch.Tensor
-        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
-        
-    Returns:
-    --------
-    torch.Tensor
-        The element-wise t-divergence values, shape (d,)
-    """
-    
-    # Check if v is positive
-    if v <= 0:
-        raise ValueError("Degrees of freedom v must be positive")
-    
-    # Ensure all inputs have the same shape
-    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
-    
-    k = mu1.shape[0]
-    # Calculate t from v: t = 2/(v+1) + 1
-    t = 2/(v + k) + 1
-    den = 1 - t  # = -2/(v+1) 
-
-    #Calcualte dimensionality
-    k = mu1.shape[0]
-    
-    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
-    psi = compute_psi_vectorized_ln(v, k)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
-    #implement ignoring the gamma terms, as they will be the same for all divergences (just a constant multiplier)
-    #psi1 = torch.prod(torch.exp(log_sigma1/(v+k))) #computes the determinant od a diagonal matrix raised to the power of 1/v+k
-    #psi2 = torch.prod(torch.exp(log_sigma2/(v+k)))
-    #psi1 = torch.exp(torch.sum(log_sigma1)/(v+k))
-    #psi2 = torch.exp(torch.sum(log_sigma2)/(v+k))
-    
-    # Common denominator terms: for t larger than 1 (the case that we are considering, den is negative)
-
-    det_term1 = torch.exp(torch.sum(log_sigma1)/(v+k))
-    det_term2 = torch.exp(torch.sum(log_sigma2)/(v+k))
-    #mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
-    mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/v
-    trace_term = torch.exp(log_sigma1 - log_sigma2)/v
-    #trace_term = torch.exp(log_sigma1 - log_sigma2)/v
-    det_term = torch.exp(log_sigma1/(v+k)) - torch.exp(log_sigma2/(v+k))
-    if sum:
-        #divergence = torch.pow(torch.sum(torch.pow((term1 + term2 + term3 + term4 + term5),den)) - (dim - 1), 1/den)
-        divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/v
-    else:
-        divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/v)
-    
-    return divergence
-def compute_t_st_mf(mu1, log_sigma1, mu2, log_sigma2, q, v, sum = True, lamb = 1, initial_prior_var = 1):
-    """
-    Calculate the element-wise t-divergence between two d-dimensional distributions given q (which equals t)
-    
-    Note  t = 2/(v+k) + 1 and v = 2/(t-1) - k
-
-    Take mean field approach and assume v_new  = v -k +1. One obtains v = 2/(t-1) - 1
-
-    Parameters:
-    -----------
-    mu1 : torch.Tensor
-        Mean of the first distribution, shape (d,)
-    mu2 : torch.Tensor
-        Mean of the second distribution, shape (d,)
-    log_sigma1 : torch.Tensor
-        Log variance of the first distribution, shape (d,)
-    log_sigma2 : torch.Tensor
-        Log variance of the second distribution, shape (d,)
-    v : int or torch.Tensor
-        Degrees of freedom (v > 0). Keep between values of 1.0 and 50.0 (the larger it gets, t converges to 1 as in the Gaussian)
-        
-    Returns:
-    --------
-    torch.Tensor
-        The element-wise t-divergence values, shape (d,)
-    """
-    
-    # Check if v is positive
-    if v <= 0:
-        raise ValueError("Degrees of freedom v must be positive")
-    
-    # Ensure all inputs have the same shape
-    assert mu1.shape == mu2.shape == log_sigma1.shape == log_sigma2.shape, "All inputs must have the same shape"
-    # Calculate t from v: t = 2/(v+1) + 1
-    dof = 2/(q-1) - 1 #degree of fredom of the univariate t distribution based on q value
-    den = 1 - q  # = -2/(v+1) 
-
-    # Compute Ψ₁ and Ψ₂ (now returns tensors of shape (d,))
-    psi = compute_psi_vectorized_ln(dof, 1)/abs(den) #note abs of den is taken because after everything is negated for numerical stability
-
-    det_term1 = torch.exp(torch.sum(log_sigma1)/(dof+1))
-    det_term2 = torch.exp(torch.sum(log_sigma2)/(dof+1))
-
-    mean_term = (mu1 - mu2)**2 * torch.exp(-log_sigma2)/dof
-    trace_term = torch.exp(log_sigma1 - log_sigma2)/dof
-
-    det_term = torch.exp(log_sigma1/(dof+1)) - torch.exp(log_sigma2/(dof+1))
-    if sum:
-        divergence = psi*torch.sum(-det_term + det_term2*mean_term + det_term2*trace_term) - psi*det_term1/dof
-    else:
-        divergence =  psi*(det_term2*mean_term + det_term2*trace_term -det_term - det_term1/dof)
-    
-    return divergence
-
-def sample_student_t(shape, df, device="cuda", dtype=torch.float32):
-    """
-    Efficiently sample from a Student's t-distribution using PyTorch.
-    
-    Parameters:
-        shape (tuple): The shape of the output samples.
-        df (float): Degrees of freedom of the Student's t-distribution.
-        loc (float): Mean (location parameter) of the distribution.
-        scale (float): Scale parameter of the distribution.
-        device (str): The device to use ('cpu' or 'cuda').
-        dtype (torch.dtype): The data type for the samples.
-
-    Returns:
-        torch.Tensor: Samples from the Student's t-distribution.
-    """
-    # Generate standard normal samples
-    X = torch.empty(shape, device=device).normal_(mean=0,std=1)
-    
-    # Generate chi-squared samples
-    Z = torch.distributions.Chi2(df).sample(shape).to(device=device)
-    
-    # Transform to Student's t-distribution
-    Y = X * torch.rsqrt(Z / df)
-    
-    # Apply location and scale
-    return Y
-'''

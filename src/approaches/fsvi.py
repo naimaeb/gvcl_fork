@@ -198,9 +198,11 @@ class Appr(ApprBase):
             self.model.zero_grad()
             grad_prior, grad_names_prior = self.compute_grads(output_mean_prior[:, i], t, prior=True)  # N x D
             grad_prior = grad_prior.detach().clone()
+
             self.model.zero_grad()
             grad, grad_names = self.compute_grads(output_mean[:, i], t, prior=False)  # D x N  
             grad = grad.detach().clone()
+
 
             # for debugging: print(grad_names_prior); print(grad_names)
 

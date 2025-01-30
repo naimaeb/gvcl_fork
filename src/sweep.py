@@ -26,7 +26,7 @@ else: print('[CUDA unavailable]'); sys.exit()
 
 wandb_config = {
     "name": args.sweep_name,
-    "method": "bayes",
+    "method": "grid",
     "metric": {"goal": "maximize", "name": "avg_accuracy"},
     "early_terminate":{
         "type": "hyperband",
@@ -55,17 +55,24 @@ wandb_config = {
         'reg_type': {
             'value': args.reg_type 
         },
+        'context':{
+            'value':20 # for fsvi
+        },
         # 'scheduler_type': {
-        #     'value': 'cosine_anneal'
-        # },
+        #      'value': 'cosine_anneal'
+        #  },
         'optimizer':{'value':'adam'},
         'lr_schedule': {'value': False},
         'lr': {'values': [1e-3, 1e-2, 1e-1, 1],},
-        #'lamb': {"max": 1e4, "min": 1e-3},
-        'beta': {"max": 1.0, "min": 1e-3},
-        'q': {"max": 3.0-1e-4, "min": 1.0+1e-4},
+        #'lamb': {'values': [1, 10, 100, 1000],},#{"max": 1e4, "min": 1e-3},
+        'beta': {'values': [0.05, 0.1, 0.5, 1],},#{"max": 1.0, "min": 1e-3},
+        'q': {'values': [1.1, 1.8, 2.4, 2.9],},#{"max": 3.0-1e-4, "min": 1.0+1e-4},
         #'v': {"max": 10e4, "min": 1e-4},
-        'weight_decay':{"max": 1e-3, "min": 1e-6},
+        #'weight_decay':{"max": 1e-3, "min": 1e-6}, 
+        #'momentum': {'values': [0, 0.9, 0.99, 1]},
+        #'activation_fun': {'values': ['relu', 'tanh', 'leaky_relu']},
+        #'width': {'values': [128, 256, 512, 780]},
+        #'depth': {'values': [1, 2, 3, 4]},
     }
 }
 
@@ -84,7 +91,7 @@ def training_and_testing(config=None):
 
     # Inits
     print('Inits...')
-    net=network.Net(inputsize,taskcla).cuda()
+    net=network.Net(inputsize,taskcla, **config).cuda()
     utils.print_model_report(net)
 
 
@@ -179,14 +186,20 @@ def training_and_testing(config=None):
 
 
 # wandb sweep training
-sweep_id = "1ipws13e"#wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
-wandb.agent(sweep_id, function=training_and_testing, count=40, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+sweep_id = "r71n7kmi"#wandb.sweep(wandb_config, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
+wandb.agent(sweep_id, function=training_and_testing, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 
 
 ########################################################################################################################
 
-# example command: CUDA_VISIBLE_DEVICES=0 python3 ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-cifar-cosine' --nepochs 20 --experiment cifar --train_samples 4 --approach vcl --seed 14 --reg_type kl_g
+# example command: CUDA_VISIBLE_DEVICES=0 python3 ./src/sweep.py --sweep_name 'kl_g_gvcl-nofilm-cifar-cosine-v2' --nepochs 20 --experiment cifar --train_samples 4 --approach vcl --seed 14 --reg_type kl_g
 # example command: CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 't_st_k1_vcl-nofilm-mnist-adam' --nepochs 10 --experiment smnist --train_samples 4 --approach vcl --seed 14 --reg_type t_st_k1
 # example command: CUDA_VISIBLE_DEVICES=2 python3 ./src/sweep.py --sweep_name 't_st_mf_vcl-nofilm-mnist-adam' --nepochs 10 --experiment smnist --train_samples 4 --approach vcl --seed 14 --reg_type t_st_mf
-# CUDA_VISIBLE_DEVICES=5 python ./src/sweep.py --sweep_name 'kl_g_gvcl_cifar-adam' --nepochs 10 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type kl_g --context 40 
-# CUDA_VISIBLE_DEVICES=5 python ./src/sweep.py --sweep_name 're_g_gvcl_cifar-adam' --nepochs 10 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type re_ --context 40 
+
+# CUDA_VISIBLE_DEVICES=3 python ./src/sweep.py --sweep_name 'kl_g_gvcl_mnist-adam-v2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type kl_g --ntasks 10
+# CUDA_VISIBLE_DEVICES=4 python ./src/sweep.py --sweep_name 're_g_gvcl_mnist-adam-v2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type re_g --ntasks 10
+# CUDA_VISIBLE_DEVICES=6 python ./src/sweep.py --sweep_name 't_st_mf_gvcl_mnist-adam-v2' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type t_st_mf --ntasks 10
+
+# CUDA_VISIBLE_DEVICES=5 python ./src/sweep.py --sweep_name 're_g_vcl_mnist-adam-width' --nepochs 10 --experiment smnist --train_samples 4 --approach gvcl --seed 14 --reg_type re_g --ntasks 10
+
+# CUDA_VISIBLE_DEVICES=1 python ./src/sweep.py --sweep_name 're_g_gvcl-nofilm-max-cifar-v2' --nepochs 20 --experiment cifar --train_samples 4 --approach gvcl --seed 14 --reg_type re_g --context 40 

@@ -15,7 +15,7 @@ class BabyNetFiLM:
 
 class ZenkeNetNoFiLM:
     class Net(MultiHeadCNN):
-        def __init__(self, inputsize,taskcla):
+        def __init__(self, inputsize,taskcla, **kwargs):
             heads = [t[1] for t in taskcla]
             super().__init__((3,32,32), [(32,3), (32,3), 'pool', (64,3), (64,3), 'pool'], [512], heads, activation_fun='relu') 
 
@@ -27,9 +27,9 @@ class ZenkeNetFiLM:
 
 class SMNISTNetNoFiLM:
     class Net(MultiHeadCNN):
-        def __init__(self, inputsize,taskcla):
+        def __init__(self, inputsize, taskcla, width=256, depth=2, activation_fun='relu', **kwargs):
             heads = [t[1] for t in taskcla]
-            super().__init__((1,28,28), [], [256,256], heads, activation_fun='relu')
+            super().__init__((1,28,28), [], [width]*depth, heads, activation_fun=activation_fun)
 
 class SMNISTNetFiLM:
     class Net(MultiHeadFiLMCNN):
@@ -45,7 +45,7 @@ class Toy2DNet:
 
 class AlexNetNoFiLM:
     class Net(MultiHeadFiLMCNN):
-        def __init__(self, inputsize,taskcla):
+        def __init__(self, inputsize,taskcla, **kwargs):
             heads = [t[1] for t in taskcla]
             super().__init__((3,32,32), [(64, 4, 0), 'pool', (128, 3, 0), 'pool', (256, 2, 0), 'pool'], [2048,2048], heads, prior_var = 0.01)
 
@@ -57,6 +57,6 @@ class AlexNetFiLM:
 
 class OmniglotNet:
     class Net(MultiHeadCNN):
-        def __init__(self, inputsize,taskcla):
+        def __init__(self, inputsize,taskcla, **kwargs):
             heads = [t[1] for t in taskcla]
-            super().__init__((1,28,28), [(64, 3),'pool', (64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool'], [512], heads, prior_var = 0.01)
+            super().__init__((1,28,28), [(64, 3),'pool', (64, 3), 'pool', (64, 3), 'pool', (64, 3), 'pool'], [512], heads, prior_var = 1.)

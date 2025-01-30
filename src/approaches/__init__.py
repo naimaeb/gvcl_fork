@@ -27,9 +27,11 @@ class ApprBase(object):
         mom=kwargs.get('momentum', 1)
 
         if optim_name=="sgd":
+            print("Using sgd")
             opt = torch.optim.SGD(parameters, lr=lr, weight_decay=wd, momentum=mom)
         elif optim_name=="adam":
-            opt = torch.optim.Adam(parameters, lr = lr, weight_decay=wd)
+            print("Using Adam")
+            opt = torch.optim.Adam(parameters, lr = lr)
         else: raise NotImplementedError
 
         return opt
@@ -75,14 +77,18 @@ class ApprBase(object):
     def get_training_epochs(self, dataset_len, t): 
         #making sure every dataset has the same # of gradient passes irrespective of dataset size
 
+        try: epochs_base = self.nepochs[0]
+        except TypeError: epochs_base = self.nepochs
+
+
         if t == 0:
             self.first_train_size = dataset_len
-            num_epochs_to_train = self.nepochs[0]
+            num_epochs_to_train = epochs_base
 
             #correction if the task order is permuted (for mixture)
             if 'mixture' == self.exp:
                 self.first_train_size = 20600 #size of facescrub
-                num_epochs_to_train = int(round(self.nepochs[0] * self.first_train_size/dataset_len))
+                num_epochs_to_train = int(round(epochs_base * self.first_train_size/dataset_len))
             
             return num_epochs_to_train
         

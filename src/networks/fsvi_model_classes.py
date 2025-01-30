@@ -171,9 +171,9 @@ class MultiHeadCNN(nn.Module):
     
     def collect_all_variances_vector(self, task, prior=False):
         all_vars = []
-        for layer in self.fc_layers:
-            all_vars.append(layer.get_var(prior))
         for layer in self.conv_layers:
+            all_vars.append(layer.get_var(prior))
+        for layer in self.fc_layers:
             all_vars.append(layer.get_var(prior))
         all_vars.append(self.heads[task].get_var(prior))
         return torch.cat([torch.flatten(var) for var_pair in all_vars for var in var_pair])
