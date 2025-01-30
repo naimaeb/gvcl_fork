@@ -142,10 +142,10 @@ class Appr(ApprBase):
             targets = y[b]
         
 
-            task_labels = int(t) * torch.ones_like(targets)
+            #task_labels = int(t) * torch.ones_like(targets)
 
             # Forward current model
-            outputs=self.model(images, task_labels, self.reg_type, v = self.v, tasks = [t], num_samples = train_samples)
+            outputs=self.model(images, self.reg_type, v = self.v, tasks = [t], num_samples = train_samples)
             output=outputs[t]
 
             #calculate loss for every MC sample
@@ -199,27 +199,32 @@ class Appr(ApprBase):
                 targets=torch.autograd.Variable(y[b],volatile=True)
                 '''
                 images = x[b]
-                targets = y[b]
+                targets = y[b] if y is not None else None
 
-                task_labels = int(t) * torch.ones_like(targets)
+
+                #task_labels = int(t) * torch.ones_like(targets)
 
                 # Forward
-                outputs=self.model(images, task_labels, reg_type = self.reg_type, v = self.v, tasks = [t], num_samples = 20)
+                outputs=self.model(images, reg_type = self.reg_type, v = self.v, tasks = [t], num_samples = 20)
                 output=outputs[t]
                 probs = F.softmax(output, dim=2).mean(dim = 0)
                 _,pred=probs.max(1)
-                hits=(pred==targets).float()
 
                 # Append predictions to the list
                 all_preds.append(probs.cpu().numpy())
 
-                # Log
-                total_acc+=hits.sum().data.cpu().numpy().item()
-                total_num+=len(b)
+
+                if y is not None:
+                    hits=(pred==targets).float()               
+                    # Log
+                    total_acc+=hits.sum().data.cpu().numpy().item()
+                    total_num+=len(b)
 
             # Concatenate all predictions and convert to NumPy array
             all_preds = np.concatenate(all_preds, axis=0)
-
+            if y is not None:
             #not measuring loss for test set, just accuracy, so return -1 for loss
-            return -1, total_acc/total_num, all_preds
+                return -1, total_acc/total_num, all_preds
+            else:
+                return -1, None, all_preds
 

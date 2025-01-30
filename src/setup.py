@@ -39,7 +39,7 @@ def get_args():
     parser.add_argument('--optimizer', type=str, default='sgd', help='Optimizer')
     args=parser.parse_args()
     if args.output=='':
-        args.output=root_path+'res/'+args.experiment+'/'+args.approach+'_'+args.reg_type+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
+        args.output=root_path+'res/'+args.experiment+'/'+args.approach+'/'+args.reg_type+'/'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
     print('='*100)
     print('Arguments =')
     for arg in vars(args):

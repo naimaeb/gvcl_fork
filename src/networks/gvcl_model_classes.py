@@ -316,7 +316,7 @@ class MultiHeadMLP(nn.Module):
         self.device = device
         return super().to(device)
 
-    def forward(self, x, task_labels, reg_type, v, num_samples=1, tasks = None):
+    def forward(self, x, reg_type, v, num_samples=1, tasks = None):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
@@ -357,7 +357,7 @@ class MultiHeadMLP(nn.Module):
         for layer in self.fc_layers:
             layer.set_prior_grads(flag)
 
-    def forward_mean(self, x, task_labels, reg_type, v, tasks = None, prior=False):
+    def forward_mean(self, x, reg_type, v, tasks = None, prior=False):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
