@@ -246,6 +246,163 @@ class MultiHeadCNN(nn.Module):
                 self.heads[t].add_new_task(reset_variance = False)
 
 
+class MultiHeadMLP(nn.Module):
+    """Multihead CNN without FiLM"""
+    def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = False, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu"):
+        super().__init__()
+        self.fc_layers = nn.ModuleList([])
+        self.heads = nn.ModuleList([])
+        self.num_tasks = len(output_dims)
+        self.output_dims = output_dims
+
+        self.single_head = single_head
+        self.prior_var = prior_var    
+        self.prior_var = prior_var
+
+        if activation_fun == "relu":
+            self.act=F.relu
+        elif activation_fun == "tanh":
+            self.act=F.tanh
+        elif activation_fun == "sigmoid": 
+            self.act=F.sigmoid
+        elif activation_fun == "leaky_relu":
+            self.act=F.leaky_relu
+        else:
+            raise ValueError(f"Unknown activation function: {activation_fun}")
+
+        if len(init_vars) == 0: init_vars = -7 * np.ones([len(fc_sizes) + 1])
+        
+        layer_index = 0
+    
+        input_dimension = 2 #for toy data in 2D
+
+        last_size = input_dimension
+        
+        for i, hidden_size in enumerate(fc_sizes):
+            self.fc_layers.append(MFLinearLayer(last_size, hidden_size, prior_var = self.prior_var, init_var = init_vars[layer_index]))
+            last_size = hidden_size
+            layer_index += 1
+        
+        if single_head:
+            self.heads.append(MFLinearLayer(last_size, output_dims[0], prior_var = self.prior_var, init_var = init_vars[layer_index]))
+        else:
+            for output_dim in output_dims:
+                self.heads.append(MFLinearLayer(last_size, output_dim, prior_var = self.prior_var, init_var = init_vars[layer_index]))
+
+
+    def get_task_specific_parameters(self, task_number):
+        modules = nn.ModuleList([])
+        if not self.single_head:
+            modules.append(self.heads[task_number])
+        modules.append(self.fc_layers)
+        if self.single_head:
+            modules.append(self.heads[0])
+        
+        return modules.parameters()
+    
+    def get_all_parameters(self, task_number, prior=False):
+        all_params = []
+        if prior:
+            all_params.extend(self.heads[task_number].get_prior_params())
+            for layer in self.fc_layers:
+                all_params.extend(layer.get_prior_params())
+        else: 
+            all_params.extend(self.heads[task_number].get_current_params())
+            for layer in self.fc_layers:
+                all_params.extend(layer.get_current_params())
+        return all_params
+
+    def to(self, device):
+        self.device = device
+        return super().to(device)
+
+    def forward(self, x, task_labels, reg_type, v, num_samples=1, tasks = None):
+        if tasks is None:
+            tasks = range(self.num_tasks)
+            excluded_tasks = []
+        else:
+            excluded_tasks = [i for i in range(self.num_tasks) if i not in tasks]
+
+        outputs = [None for j in range(self.num_tasks)]
+
+        batch_size = x.shape[0]
+        if 't_st'in reg_type:x = x.repeat([num_samples,1,1,1,1])
+        else:x = x.repeat([num_samples,1,1,1])
+        
+        for i, layer in enumerate(self.fc_layers):
+            x = layer(x, reg_type,v) 
+            x = self.act(x)
+            
+        self.pre_head = x
+
+        for j in tasks:
+            head_index = 0 if self.single_head else j
+            task_output = self.heads[head_index](x,reg_type,v)
+            outputs[j] = task_output.reshape([num_samples, batch_size, -1])
+        for j in excluded_tasks:
+            outputs[j] = torch.zeros_like(task_output, device = device)
+
+        return outputs
+    
+    
+    def collect_all_variances_vector(self, task, prior=False):
+        all_vars = []
+        for layer in self.fc_layers:
+            all_vars.append(layer.get_var(prior))
+        all_vars.append(self.heads[task].get_var(prior))
+        return torch.cat([torch.flatten(var) for var_pair in all_vars for var in var_pair])
+
+
+    def set_prior_grads(self, flag):
+        for layer in self.fc_layers:
+            layer.set_prior_grads(flag)
+
+    def forward_mean(self, x, task_labels, reg_type, v, tasks = None, prior=False):
+        if tasks is None:
+            tasks = range(self.num_tasks)
+            excluded_tasks = []
+        else:
+            excluded_tasks = [i for i in range(self.num_tasks) if i not in tasks]
+
+        outputs = [None for j in range(self.num_tasks)]
+
+        batch_size = x.shape[0]
+        
+        for i, layer in enumerate(self.fc_layers):
+            x = layer.forward_mean(x, reg_type,v, prior=prior) 
+            x = self.act(x)
+            
+        self.pre_head = x
+
+        for j in tasks:
+            head_index = 0 if self.single_head else j
+            task_output = self.heads[head_index].forward_mean(x,reg_type,v, prior=prior)
+            outputs[j] = task_output.reshape([batch_size, -1])
+        for j in excluded_tasks:
+            outputs[j] = torch.zeros_like(task_output, device = device)
+
+        return outputs
+
+    def get_reg(self, lamb, reg_type, q,v):
+        kl = 0
+        
+        for layer in self.fc_layers:
+            kl += layer.get_reg(lamb, reg_type, q, v)
+
+        for t, layer in enumerate(self.heads):
+            kl += layer.get_reg(lamb, reg_type, q, v)
+
+        return kl
+    
+    def add_task_body_params(self, updated_tasks):
+        for layer in self.fc_layers:
+            layer.add_new_task()
+        if self.single_head:
+            self.heads[0].add_new_task(reset_variance = False)
+        if not self.single_head:
+            for t in updated_tasks:
+                self.heads[t].add_new_task(reset_variance = False)
+
 class MultiHeadFiLMCNN(nn.Module):
     def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, film_type = 'point', single_head = False, global_avg_pool = False, prior_var = 1, init_vars = []):
         super().__init__()

@@ -122,12 +122,20 @@ for t,ncla in taskcla:
     step = appr.train(task,xtrain,ytrain,xvalid,yvalid, step)
     print('-'*100)
 
+    output_dict = {}
     # Test
     for u in range(t+1):
         xtest=data[u]['test']['x'].cuda()
         ytest=data[u]['test']['y'].cuda()
         if args.approach == 'hat':
             test_loss,test_acc=appr.eval(u,xtest,ytest,save_preds = True, dset = args.experiment)
+        if args.approach == 'toy2d':
+            test_loss,test_acc, out =appr.eval(u,xtest,ytest,)
+            output_dict[f'task_{u}'] = {
+                'output': out,
+                'xtest': xtest.cpu().numpy(),
+                'ytest': ytest.cpu().numpy()
+            }
         else:
             test_loss,test_acc=appr.eval(u,xtest,ytest,)
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.1f}% <<<'.format(u,data[u]['name'],test_loss,100*test_acc))
@@ -142,6 +150,10 @@ for t,ncla in taskcla:
     print(f'Average accuracy: {avg_accuracy * 100:.1f}%')
     wandb.log({"epoch":step, "avg_accuracy": avg_accuracy})
 
+    # Save output_dict if using toy2d approach
+    if args.approach == 'toy2d':
+        output_file = args.output.replace('.txt', '_output_dict.npy')
+        np.save(output_file, output_dict)
 
     # Save
     print('Save at '+args.output)
