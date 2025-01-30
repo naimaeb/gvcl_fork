@@ -47,6 +47,92 @@ class ToydataGenerator():
         self.centers = centers
         self.std = std
 
+def generate_two_task_dataset(n_samples=2000,
+                            task1_centers=[[-2, 0], [1, 0]],
+                            task2_centers=[[0, -2], [0, 1]],
+                            overlap_ratio=0.3,
+                            random_state=42):
+    """
+    Generate two related binary classification tasks where each class has
+    points that overlap with the other class's region.
+    
+    Parameters:
+    -----------
+    n_samples : int
+        Number of samples per task
+    task1_centers : list of [x, y] coordinates
+        Centers for the two classes in task 1
+    task2_centers : list of [x, y] coordinates
+        Centers for the two classes in task 2
+    overlap_ratio : float
+        Ratio of points that should appear in the overlapping region
+    random_state : int
+        Random seed for reproducibility
+    
+    Returns:
+    --------
+    X1, y1 : Arrays for task 1
+    X2, y2 : Arrays for task 2
+    """
+    rng = np.random.RandomState(random_state)
+    
+    # Calculate numbers for each class
+    n_per_class = n_samples // 2
+    n_overlap = int(n_per_class * overlap_ratio)
+    n_core = n_per_class - n_overlap
+    
+    def generate_task_data(centers):
+        # For each class, generate a mixture of core and overlapping points
+        def generate_class_points(class_idx):
+            # Generate core points with smaller std
+            X_core, _ = make_blobs(n_samples=n_core,
+                                 centers=[centers[class_idx]],
+                                 cluster_std=0.5,
+                                 random_state=rng.randint(1000))
+            
+            # Generate overlapping points with larger std, centered between the two classes
+            overlap_center = np.mean([centers[class_idx], centers[1-class_idx]], axis=0)
+            X_overlap, _ = make_blobs(n_samples=n_overlap,
+                                    centers=[overlap_center],
+                                    cluster_std=1.5,
+                                    random_state=rng.randint(1000))
+            
+            # Combine points for this class
+            X_class = np.vstack([X_core, X_overlap])
+            y_class = np.full(n_per_class, class_idx)
+            
+            return X_class, y_class
+        
+        # Generate both classes
+        X0, y0 = generate_class_points(0)
+        X1, y1 = generate_class_points(1)
+        
+        # Combine classes
+        X = np.vstack([X0, X1])
+        y = np.hstack([y0, y1])
+        
+        return X, y
+    
+    # Generate data for both tasks
+    X1, y1 = generate_task_data(task1_centers)
+    X2, y2 = generate_task_data(task2_centers)
+    
+    # Shuffle all datasets with the same permutation
+    shuffle_idx = rng.permutation(len(X1))
+    X1 = X1[shuffle_idx]
+    y1 = y1[shuffle_idx]
+    X2 = X2[shuffle_idx]
+    y2 = y2[shuffle_idx]
+
+        # Save X1 and y1 as np.ndarray
+    X1 = np.array(X1)
+    y1 = np.array(y1)
+
+    # Save X2 and y2 as np.ndarray
+    X2 = np.array(X2)
+    y2 = np.array(y2)
+    
+    return [X1, y1, X2, y2]
 
 
 
@@ -57,11 +143,12 @@ def get(seed=0, fixed_order=False, option = 0, pc_valid=0.1, path=None):
 
     torch.manual_seed(42) 
     num_samples_per_task = 2000
-    num_tasks = 5
+    num_tasks = 2
     std = 0.5  # Standard deviation of the clusters
 
+    task_data = generate_two_task_dataset()
 
-    # Instantiate ToydataGenerator to get centers and std
+    # Instantiate ToydataGenerator to get centers and std, not used currently
     toy_data_generator = ToydataGenerator(option=option)
     centers = toy_data_generator.centers
     std = toy_data_generator.std
@@ -76,8 +163,11 @@ def get(seed=0, fixed_order=False, option = 0, pc_valid=0.1, path=None):
 
         task_centers = [centers[2*t], centers[2*t + 1]]
         task_std = [std[2*t], std[2*t + 1]]
-        x, y = make_blobs(n_samples=num_samples_per_task, centers=task_centers, cluster_std=task_std, random_state=seed)
+        #x, y = make_blobs(n_samples=num_samples_per_task, centers=task_centers, cluster_std=task_std, random_state=seed)
 
+        #print("good_shapes",x.shape, y.shape)
+        x, y = task_data[2*t], task_data[2*t + 1]
+        #print("current_shapes",x1.shape, y1.shape)
         # Split data into train, validation, and test sets
         x_train, x_temp, y_train, y_temp = train_test_split(x, y, test_size=pc_valid + 0.1, random_state=seed)
         x_valid, x_test, y_valid, y_test = train_test_split(x_temp, y_temp, test_size=0.5, random_state=seed)

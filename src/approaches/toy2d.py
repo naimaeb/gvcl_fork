@@ -188,6 +188,7 @@ class Appr(ApprBase):
             r=np.arange(x.size(0))
             r=torch.LongTensor(r).cuda()
 
+            all_preds = []
             # Loop batches
             for i in range(0,len(r),self.sbatch):
                 if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
@@ -209,10 +210,16 @@ class Appr(ApprBase):
                 _,pred=probs.max(1)
                 hits=(pred==targets).float()
 
+                # Append predictions to the list
+                all_preds.append(probs.cpu().numpy())
+
                 # Log
                 total_acc+=hits.sum().data.cpu().numpy().item()
                 total_num+=len(b)
 
+            # Concatenate all predictions and convert to NumPy array
+            all_preds = np.concatenate(all_preds, axis=0)
+
             #not measuring loss for test set, just accuracy, so return -1 for loss
-            return -1, total_acc/total_num, outputs
+            return -1, total_acc/total_num, all_preds
 
