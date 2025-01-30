@@ -1,7 +1,8 @@
 import os,sys
 import numpy as np
 import torch
-from sklearn.datasets._samples_generator import make_blobs
+#from sklearn.datasets._samples_generator import make_blobs
+from sklearn.datasets import make_blobs
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from torch.utils.data import TensorDataset, Dataset, Subset
@@ -110,6 +111,7 @@ def generate_two_task_dataset(n_samples=2000,
         # Combine classes
         X = np.vstack([X0, X1])
         y = np.hstack([y0, y1])
+
         
         return X, y
     
@@ -135,18 +137,102 @@ def generate_two_task_dataset(n_samples=2000,
     return [X1, y1, X2, y2]
 
 
+class TaskDatasetGenerator:
+    def __init__(self, n_tasks=5, n_samples=2000, task_centers=None, overlap_ratio=0.3, random_state=42):
+        self.n_tasks = n_tasks
+        self.n_samples = n_samples
+        self.task_centers = task_centers if task_centers is not None else self._default_task_centers()
+        self.overlap_ratio = overlap_ratio
+        self.random_state = random_state
 
-def get(seed=0, fixed_order=False, option = 0, pc_valid=0.1, path=None):
+        # Calculate numbers for each class
+        self.n_per_class = self.n_samples // 2
+        self.n_overlap = int(self.n_per_class * self.overlap_ratio)
+        self.n_core = self.n_per_class - self.n_overlap
+
+        self.rng = np.random.RandomState(random_state)
+    
+
+    def _default_task_centers(self):
+        return [
+            [[-2, 0], [1, 0]],
+            [[0, -2], [0, 1]],
+            [[2, 2], [-2, -2]],
+            [[-1, 1], [1, -1]],
+            [[3, 0], [0, 3]]
+        ]
+
+    def _generate_class_points(self, centers,class_idx):
+            # Generate core points with smaller std
+            X_core, _ = make_blobs(n_samples=self.n_core,
+                                 centers=[centers[class_idx]],
+                                 cluster_std=0.5,
+                                 random_state=self.rng.randint(1000))
+            
+            # Generate overlapping points with larger std, centered between the two classes
+            overlap_center = np.mean([centers[class_idx], centers[1-class_idx]], axis=0)
+            X_overlap, _ = make_blobs(n_samples=self.n_overlap,
+                                    centers=[overlap_center],
+                                    cluster_std=1.5,
+                                    random_state=self.rng.randint(1000))
+            
+            # Combine points for this class
+            X_class = np.vstack([X_core, X_overlap])
+            y_class = np.full(self.n_per_class, class_idx)
+            
+            return X_class, y_class
+    
+    def _generate_task_data(self, centers):
+        #always have 2 classes and want to stack them
+
+        X0, y0 = self._generate_class_points(centers, 0)
+        X1, y1 = self._generate_class_points(centers, 1)
+
+        # Combine classes
+        X = np.vstack([X0, X1])
+        y = np.hstack([y0, y1])  
+
+        return X, y
+
+    def _generate_datasets(self):
+        datasets = []
+        for i in range(self.n_tasks):
+            # Generate data for both tasks
+            centers = self.task_centers[i]
+            X1, y1 = self._generate_task_data(centers)
+            
+            # Shuffle all datasets with the same permutation
+            shuffle_idx = self.rng.permutation(len(X1))
+            X1 = X1[shuffle_idx]
+            y1 = y1[shuffle_idx]
+
+                # Save X1 and y1 as np.ndarray
+            X1 = np.array(X1)
+            y1 = np.array(y1)
+            datasets.append(X1)
+            datasets.append(y1)
+        return datasets
+
+    def get_datasets(self):
+        return self._generate_datasets()
+
+
+
+def get(seed=0, n_tasks = 5, n_samples = 2000, fixed_order=False, option = 0, pc_valid=0.1, path=None):
     data = {}
     taskcla = []
     size = [2]  # Each data point is a 2D coordinate (x, y)
 
     torch.manual_seed(42) 
-    num_samples_per_task = 2000
-    num_tasks = 2
+    num_samples_per_task = n_samples
+    num_tasks = n_tasks
     std = 0.5  # Standard deviation of the clusters
 
-    task_data = generate_two_task_dataset()
+    # Example usage
+    generator = TaskDatasetGenerator(n_tasks=n_tasks, n_samples=n_samples)
+    task_data = generator.get_datasets()
+    print(task_data)
+    #task_data = generate_two_task_dataset()
 
     # Instantiate ToydataGenerator to get centers and std, not used currently
     toy_data_generator = ToydataGenerator(option=option)

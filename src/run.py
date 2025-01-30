@@ -177,7 +177,7 @@ for t,ncla in taskcla:
 
     # Save output_dict if using toy2d approach
     if args.approach == 'toy2d':
-        output_file = args.output.replace('.txt', '_output_dict.npy')
+        output_file = args.output.replace('.txt', "q_"+str(appr.q)+'_output_dict.npy')
         np.save(output_file, output_dict)
 
     # Save
