@@ -127,14 +127,39 @@ for t,ncla in taskcla:
     for u in range(t+1):
         xtest=data[u]['test']['x'].cuda()
         ytest=data[u]['test']['y'].cuda()
+        xtrain=data[u]['train']['x'].cuda()
+        ytrain = data[u]['train']['y'].cuda()
         if args.approach == 'hat':
             test_loss,test_acc=appr.eval(u,xtest,ytest,save_preds = True, dset = args.experiment)
         if args.approach == 'toy2d':
             test_loss,test_acc, out =appr.eval(u,xtest,ytest,)
+
+            #create a grid to plot probabilities
+            xtest_tmp = xtest.cpu().numpy()
+            x_min, x_max = xtest_tmp[:, 0].min() - 1, xtest_tmp[:, 0].max() + 1
+            y_min, y_max = xtest_tmp[:, 1].min() - 1, xtest_tmp[:, 1].max() + 1
+            xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.01),
+                                np.arange(y_min, y_max, 0.01))
+            grid= np.c_[xx.ravel(), yy.ravel()]
+            print("grid", grid.size)
+            print("x_test_size", xtest.size())
+
+            # Convert grid to a 2D tensor
+            grid_tensor = torch.tensor(grid, dtype=torch.float32).cuda()
+            print("grid_tensor", grid_tensor.size())
+
+            _,_, out_grid =appr.eval(u,grid_tensor, None)
+            out_grid_plot = out_grid[:,1].reshape(xx.shape)
             output_dict[f'task_{u}'] = {
                 'output': out,
                 'xtest': xtest.cpu().numpy(),
-                'ytest': ytest.cpu().numpy()
+                'ytest': ytest.cpu().numpy(),
+                'xtrain': xtrain.cpu().numpy(),
+                'ytrain': ytrain.cpu().numpy(),
+                'out_grid': out_grid_plot,
+                'grid': grid,
+                'xx': xx,
+                'yy': yy
             }
         else:
             test_loss,test_acc=appr.eval(u,xtest,ytest,)
@@ -152,7 +177,7 @@ for t,ncla in taskcla:
 
     # Save output_dict if using toy2d approach
     if args.approach == 'toy2d':
-        output_file = args.output.replace('.txt', '_output_dict.npy')
+        output_file = args.output.replace('.txt', "q_"+str(appr.q)+'_output_dict.npy')
         np.save(output_file, output_dict)
 
     # Save
