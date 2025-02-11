@@ -40,6 +40,8 @@ def get_args():
     args=parser.parse_args()
     if args.output=='':
         args.output=root_path+'res/'+args.experiment+'/'+args.approach+'_'+args.reg_type+'_'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
+        if not os.path.exists(root_path+'res/'+args.experiment+'/'): 
+            os.makedirs(root_path+'res/'+args.experiment+'/')
     print('='*100)
     print('Arguments =')
     for arg in vars(args):

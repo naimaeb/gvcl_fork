@@ -148,7 +148,7 @@ sweep_params = {
         "gvcl": {
             "kl_g": {
                 "lamb": 1000,
-                "beta": 0.1,
+                "beta": 0.2,
                 "lr": 0.001,
                 "nepochs": [20],
                 "optimizer": 'adam',
@@ -293,9 +293,9 @@ sweep_params = {
                 "weight_decay": 0.0,
                 "lr_schedule":False,
             },
-            "re_g": {
+            "t_st_mf": {
                 "lamb": 1,
-                "beta": 0.001,
+                "beta": 1,
                 "q":1.1,
                 "lr": 0.001,
                 "nepochs": [20],
