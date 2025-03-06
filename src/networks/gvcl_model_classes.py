@@ -25,6 +25,19 @@ from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_
 
 
 device = 'cuda:0'
+def sample_parameters(mean, variance, size):
+    """
+    Sample parameters from a Gaussian distribution.
+
+    :param mean: Mean of the distribution
+    :param variance: Variance of the distribution
+    :param size: Shape of the parameters to generate
+    :return: Tensor of sampled parameters
+    """
+    std_dev = np.sqrt(variance)
+    return torch.tensor(np.random.normal(mean, std_dev, size), dtype=torch.float32, device=device)
+
+
 class MultiHeadCNN(nn.Module):
     """Multihead CNN without FiLM"""
     def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = False, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu", **kwargs):
@@ -94,7 +107,14 @@ class MultiHeadCNN(nn.Module):
             for output_dim in output_dims:
                 self.heads.append(MFLinearLayer(last_size, output_dim, prior_var = self.prior_var, init_var = init_vars[layer_index]))
 
-
+    def sample_parameters(self, mean, variance):
+        for conv_layer in self.conv_layers:
+            conv_layer.sample_parameters(mean, variance)
+        for linear_layer in self.fc_layers:
+            linear_layer.sample_parameters(mean, variance)
+        for head in self.heads:
+            head.sample_parameters(mean, variance)
+            
     def get_task_specific_parameters(self, task_number):
         modules = nn.ModuleList([])
         if not self.single_head:
@@ -633,6 +653,16 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         
         self.reset_parameters()
 
+        
+    def sample_parameters(self, mean, variance):
+        self.weight.data = sample_parameters(mean, variance, self.weight.size())
+        self.bias.data = sample_parameters(mean, variance, self.bias.size())
+        self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
+        self.b_prior_mean.data = sample_parameters(mean, variance, self.b_prior_mean.size())
+        self.weight_var.data = sample_parameters(mean, variance, self.weight_var.size())
+        self.bias_var.data = sample_parameters(mean, variance, self.bias_var.size())
+
+
     def get_prior_params(self):
         return [self.W_prior_mean, self.b_prior_mean]
 
@@ -797,6 +827,15 @@ class MFLinearLayer(nn.Module):
 
 
         self.reset_parameters()
+
+        
+    def sample_parameters(self, mean, variance):
+        self.W_var.data = sample_parameters(mean, variance, self.W_var.size())
+        self.b_var.data = sample_parameters(mean, variance, self.b_var.size())
+        self.W_mean.data = sample_parameters(mean, variance, self.W_mean.size())
+        self.b_mean.data = sample_parameters(mean, variance, self.b_mean.size())
+        self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
+        self.b_prior_mean.data = sample_parameters(mean, variance, self.b_prior_mean.size())
 
     def reset_parameters(self):
         init.kaiming_uniform_(self.W_mean, a=math.sqrt(5))
