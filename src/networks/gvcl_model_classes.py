@@ -268,7 +268,7 @@ class MultiHeadCNN(nn.Module):
 
 class MultiHeadMLP(nn.Module):
     """Multihead CNN without FiLM"""
-    def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = False, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu"):
+    def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, single_head = True, global_avg_pool = False, prior_var = 1, init_vars = [], activation_fun="relu"):
         super().__init__()
         self.fc_layers = nn.ModuleList([])
         self.heads = nn.ModuleList([])
