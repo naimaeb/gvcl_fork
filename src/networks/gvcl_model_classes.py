@@ -25,17 +25,21 @@ from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_
 
 
 device = 'cuda:0'
-def sample_parameters(mean, variance, size):
+def sample_parameters(mean, variance, size, pos=False):
     """
     Sample parameters from a Gaussian distribution.
 
     :param mean: Mean of the distribution
     :param variance: Variance of the distribution
     :param size: Shape of the parameters to generate
+    :param pos: If True, sample only positive values (necessary for variance)
     :return: Tensor of sampled parameters
     """
     std_dev = np.sqrt(variance)
-    return torch.tensor(np.random.normal(mean, std_dev, size), dtype=torch.float32, device=device)
+    if pos == True:
+        return torch.tensor(np.abs(np.random.normal(mean, std_dev, size)), dtype=torch.float32)
+    else:
+        return torch.tensor(np.random.normal(mean, std_dev, size), dtype=torch.float32)
 
 
 class MultiHeadCNN(nn.Module):
@@ -242,17 +246,28 @@ class MultiHeadCNN(nn.Module):
 
     def get_reg(self, lamb, reg_type, q,v):
         kl = 0
+        kl_m = 0
+        kl_v = 0
 
         for i, conv_layer in enumerate(self.conv_layers):
-            kl += conv_layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = conv_layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
         
         for layer in self.fc_layers:
-            kl += layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
 
         for t, layer in enumerate(self.heads):
-            kl += layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
 
-        return kl
+        return kl, kl_m, kl_v
     
     def add_task_body_params(self, updated_tasks):
         for layer in self.fc_layers:
@@ -277,7 +292,6 @@ class MultiHeadMLP(nn.Module):
 
         self.single_head = single_head
         self.prior_var = prior_var    
-        self.prior_var = prior_var
 
         if activation_fun == "relu":
             self.act=F.relu
@@ -405,14 +419,21 @@ class MultiHeadMLP(nn.Module):
 
     def get_reg(self, lamb, reg_type, q,v):
         kl = 0
+        kl_m = 0
+        kl_v = 0
         
         for layer in self.fc_layers:
-            kl += layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
 
         for t, layer in enumerate(self.heads):
-            kl += layer.get_reg(lamb, reg_type, q, v)
-
-        return kl
+            kl_reg, kl_m_reg, kl_v_reg = layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
+        return kl, kl_m, kl_v
     
     def add_task_body_params(self, updated_tasks):
         for layer in self.fc_layers:
@@ -576,17 +597,28 @@ class MultiHeadFiLMCNN(nn.Module):
 
     def get_reg(self, lamb, reg_type, q,v):
         kl = 0
+        kl_m = 0
+        kl_v = 0
 
         for i, conv_layer in enumerate(self.conv_layers):
-            kl += conv_layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = conv_layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
         
         for layer in self.fc_layers:
-            kl += layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
 
         for t, layer in enumerate(self.heads):
-            kl += layer.get_reg(lamb, reg_type, q, v)
+            kl_reg, kl_m_reg, kl_v_reg = layer.get_reg(lamb, reg_type, q, v)
+            kl += kl_reg
+            kl_m += kl_m_reg
+            kl_v += kl_v_reg
 
-        return kl
+        return kl, kl_m, kl_v
     
     def add_task_body_params(self, updated_tasks):
         for layer in self.fc_layers:
@@ -659,8 +691,8 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         self.bias.data = sample_parameters(mean, variance, self.bias.size())
         self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
         self.b_prior_mean.data = sample_parameters(mean, variance, self.b_prior_mean.size())
-        self.weight_var.data = sample_parameters(mean, variance, self.weight_var.size())
-        self.bias_var.data = sample_parameters(mean, variance, self.bias_var.size())
+        self.weight_var.data = sample_parameters(mean, variance, self.weight_var.size(), pos = True)
+        self.bias_var.data = sample_parameters(mean, variance, self.bias_var.size(), pos = True)
 
 
     def get_prior_params(self):
@@ -743,9 +775,10 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
-        W_kl = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
-        return W_kl + b_kl
+        #print(self.weight.shape, self.weight_var.shape, self.W_prior_mean.shape, self.W_prior_var.shape)
+        W_kl, W_mean_div, W_var_div = kl_function(self.weight, self.weight_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl, b_mean_div, b_var_div = kl_function(self.bias, self.bias_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        return W_kl + b_kl, W_mean_div + b_mean_div, W_var_div + b_var_div
 
 
     def forward_t_st(self, input, v, num_samples=1):
@@ -830,8 +863,8 @@ class MFLinearLayer(nn.Module):
 
         
     def sample_parameters(self, mean, variance):
-        self.W_var.data = sample_parameters(mean, variance, self.W_var.size())
-        self.b_var.data = sample_parameters(mean, variance, self.b_var.size())
+        self.W_var.data = sample_parameters(mean, variance, self.W_var.size(), pos = True)
+        self.b_var.data = sample_parameters(mean, variance, self.b_var.size(), pos = True)
         self.W_mean.data = sample_parameters(mean, variance, self.W_mean.size())
         self.b_mean.data = sample_parameters(mean, variance, self.b_mean.size())
         self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
@@ -906,9 +939,9 @@ class MFLinearLayer(nn.Module):
         else:
             raise ValueError(f"Unknown regularization type: {reg_type}")
 
-        W_kl = kl_function(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
-        b_kl = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
-        return W_kl + b_kl
+        W_kl, W_mean_div, W_var_div = kl_function(self.W_mean, self.W_var, self.W_prior_mean, self.W_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        b_kl, b_mean_div, b_var_div = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
+        return W_kl + b_kl, W_mean_div + b_mean_div, W_var_div + b_var_div
 
     def forward(self, x, reg_type, v):
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
