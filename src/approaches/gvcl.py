@@ -109,13 +109,27 @@ class Appr(ApprBase):
         for e in range(num_epochs_to_train):
             # Train
             clock0=time.time()
-            class_loss, kl_loss, kl_loss_m, kl_loss_v, re_loss, re_loss_m, re_loss_v, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
+            #kl_val, renyi_val, class_loss, kl_loss, kl_loss_m, kl_loss_v, re_loss, re_loss_m, re_loss_v, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
+            class_loss, kl_loss, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
             clock1=time.time()
             clock2=time.time()
+
             #include wandb logging for these terms
             wandb.log({
                 'epoch': step+1,
                 'class_loss': class_loss,
+                'kl_loss': kl_loss,
+                'total_loss': total_loss,
+                'train_acc': train_acc,
+                'lr': self.optimizer.param_groups[0]['lr']
+            })
+            '''
+            wandb.log({
+                'epoch': step+1,
+                'class_loss': class_loss,
+                "kl_val": kl_val,
+                "renyi_val": renyi_val,
+                "reg_val_diff": kl_val - renyi_val,
                 'kl_loss': kl_loss,
                 'kl_loss_mean': kl_loss_m,
                 'kl_loss_var': kl_loss_v,
@@ -127,6 +141,7 @@ class Appr(ApprBase):
                 'train_acc': train_acc,
                 'lr': self.optimizer.param_groups[0]['lr']
             })
+            '''
             step=step+1
             print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f} total_loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0)/xtrain.size(0),class_loss, kl_loss, total_loss,100*train_acc))
@@ -147,6 +162,8 @@ class Appr(ApprBase):
         epoch_kl_loss = 0
         epoch_total_loss = 0
         total_hits = 0
+        #kl_val = 0
+        #renyi_val = 0
 
         # Loop batches
         for i in range(0,len(r),self.sbatch):
@@ -170,15 +187,25 @@ class Appr(ApprBase):
             
             #scale kl term by beta and dataset size
             kl_term, kl_term_mean, kl_term_var = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)#/(x.shape[0])
-            renyi_term, renyi_term_mean, renyi_term_var = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = "re_g", q = self.q, v = self.v)#/(x.shape[0])
             
             #divide by the size of the distribution, not necessary when get_reg doesn not return a tuple
             kl_term = kl_term/(x.shape[0])
             kl_term_mean = kl_term_mean/(x.shape[0])
             kl_term_var = kl_term_var/(x.shape[0])
+            #kl_val += kl_term.detach().data.item()
+
+            '''
+            renyi_term, renyi_term_mean, renyi_term_var = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = "re_g", q = self.q, v = self.v)#/(x.shape[0])
             renyi_term = renyi_term/(x.shape[0])
             renyi_term_mean = renyi_term_mean/(x.shape[0])
             renyi_term_var = renyi_term_var/(x.shape[0])
+            renyi_val += renyi_term.detach().data.item()
+            '''
+           
+            
+
+            
+            #print(f"kl: {kl_val}, renyi: {renyi_val}")
 
             loss = class_loss + kl_term
             
@@ -202,15 +229,17 @@ class Appr(ApprBase):
 
             #computes the KL divergence, and logs the parts that correspond to the mean and variance
             epoch_kl_loss += kl_term.detach().data.item()
-            epoch_kl_loss_mean = kl_term_mean.detach().data.item()
-            epoch_kl_loss_var = kl_term_var.detach().data.item()
+            #epoch_kl_loss_mean = kl_term_mean.detach().data.item()
+            #epoch_kl_loss_var = kl_term_var.detach().data.item()
 
+            '''
             #computes the Renyi divergence, and logs the parts that correspond to the mean and variance
             epoch_renyi_loss = renyi_term.detach().data.item()
             epoch_renyi_loss_mean = renyi_term_mean.detach().data.item()
             epoch_renyi_loss_var = renyi_term_var.detach().data.item()
-
-        return epoch_class_loss/i, epoch_kl_loss/i, epoch_kl_loss_mean/i, epoch_kl_loss_var/i, epoch_renyi_loss/i, epoch_renyi_loss_mean/i, epoch_renyi_loss_var/i, epoch_total_loss/i, total_hits/x.shape[0]
+            '''
+        #return kl_val/i, renyi_val/i, epoch_class_loss/i, epoch_kl_loss/i, epoch_kl_loss_mean/i, epoch_kl_loss_var/i, epoch_renyi_loss/i, epoch_renyi_loss_mean/i, epoch_renyi_loss_var/i, epoch_total_loss/i, total_hits/x.shape[0]
+        return epoch_class_loss/i, epoch_kl_loss/i, epoch_total_loss/i, total_hits/x.shape[0]
 
     def eval(self,t,x,y):
         with torch.no_grad():

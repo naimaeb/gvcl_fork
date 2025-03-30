@@ -257,6 +257,7 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
         torch.Tensor: The part of the divergence corresponding to the difference in variances
     """
     # Compute posterior variance and prior variance from log-variances
+    #print("computing renyi with q = ", str(alpha))
     var = torch.exp(log_var)  # Posterior variance
     prior_var = torch.exp(log_prior_var)  # Prior variance 
     # to check
