@@ -25,7 +25,7 @@ from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_
 
 
 device = 'cuda:0'
-def sample_parameters(mean, variance, size, pos=False):
+def sample_parameters(mean, variance, size):
     """
     Sample parameters from a Gaussian distribution.
 
@@ -36,10 +36,8 @@ def sample_parameters(mean, variance, size, pos=False):
     :return: Tensor of sampled parameters
     """
     std_dev = np.sqrt(variance)
-    if pos == True:
-        return torch.tensor(np.abs(np.random.normal(mean, std_dev, size)), dtype=torch.float32)
-    else:
-        return torch.tensor(np.random.normal(mean, std_dev, size), dtype=torch.float32)
+
+    return torch.tensor(np.random.normal(mean, std_dev, size), dtype=torch.float32, device = device)
 
 
 class MultiHeadCNN(nn.Module):
@@ -691,8 +689,8 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         self.bias.data = sample_parameters(mean, variance, self.bias.size())
         self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
         self.b_prior_mean.data = sample_parameters(mean, variance, self.b_prior_mean.size())
-        self.weight_var.data = sample_parameters(mean, variance, self.weight_var.size(), pos = True)
-        self.bias_var.data = sample_parameters(mean, variance, self.bias_var.size(), pos = True)
+        self.weight_var.data = sample_parameters(mean, variance, self.weight_var.size())
+        self.bias_var.data = sample_parameters(mean, variance, self.bias_var.size())
 
 
     def get_prior_params(self):
@@ -863,8 +861,8 @@ class MFLinearLayer(nn.Module):
 
         
     def sample_parameters(self, mean, variance):
-        self.W_var.data = sample_parameters(mean, variance, self.W_var.size(), pos = True)
-        self.b_var.data = sample_parameters(mean, variance, self.b_var.size(), pos = True)
+        self.W_var.data = sample_parameters(mean, variance, self.W_var.size())
+        self.b_var.data = sample_parameters(mean, variance, self.b_var.size())
         self.W_mean.data = sample_parameters(mean, variance, self.W_mean.size())
         self.b_mean.data = sample_parameters(mean, variance, self.b_mean.size())
         self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
