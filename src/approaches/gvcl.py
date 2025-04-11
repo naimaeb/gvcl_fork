@@ -223,7 +223,7 @@ class Appr(ApprBase):
                 total_num+=len(b)
 
             #not measuring loss for test set, just accuracy, so return -1 for loss
-            return -1, total_acc/total_num
+            return -1, total_acc/x.shape[0]
 
     def criterion(self,t,output,targets):
         return 0

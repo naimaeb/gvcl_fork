@@ -107,13 +107,13 @@ class MultiHeadCNN(nn.Module):
             for output_dim in output_dims:
                 self.heads.append(MFLinearLayer(last_size, output_dim, prior_var = self.prior_var, init_var = init_vars[layer_index]))
 
-    def sample_parameters(self, mean, variance):
+    def sample_parameters(self, mean, variance, no_var=False):
         for conv_layer in self.conv_layers:
-            conv_layer.sample_parameters(mean, variance)
+            conv_layer.sample_parameters(mean, variance, no_var)
         for linear_layer in self.fc_layers:
-            linear_layer.sample_parameters(mean, variance)
+            linear_layer.sample_parameters(mean, variance, no_var)
         for head in self.heads:
-            head.sample_parameters(mean, variance)
+            head.sample_parameters(mean, variance, no_var)
             
     def get_task_specific_parameters(self, task_number):
         modules = nn.ModuleList([])
@@ -654,13 +654,18 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
         self.reset_parameters()
 
         
-    def sample_parameters(self, mean, variance):
+    def sample_parameters(self, mean, variance, no_var=False):
         self.weight.data = sample_parameters(mean, variance, self.weight.size())
         self.bias.data = sample_parameters(mean, variance, self.bias.size())
         self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())
         self.b_prior_mean.data = sample_parameters(mean, variance, self.b_prior_mean.size())
-        self.weight_var.data = sample_parameters(mean, variance, self.weight_var.size())
-        self.bias_var.data = sample_parameters(mean, variance, self.bias_var.size())
+        if no_var: 
+            self.weight_var.data = self.init_var*torch.ones_like(self.weight_var).data
+            self.bias_var.data = self.init_var*torch.ones_like(self.bias_var).data
+        else: 
+            #turn into log space! 
+            self.weight_var.data = torch.log(torch.abs(sample_parameters(mean, variance, self.weight_var.size())))
+            self.bias_var.data = torch.log(torch.abs(sample_parameters(mean, variance, self.bias_var.size())))
 
 
     def get_prior_params(self):
@@ -829,9 +834,15 @@ class MFLinearLayer(nn.Module):
         self.reset_parameters()
 
         
-    def sample_parameters(self, mean, variance):
-        self.W_var.data = sample_parameters(mean, variance, self.W_var.size())
-        self.b_var.data = sample_parameters(mean, variance, self.b_var.size())
+    def sample_parameters(self, mean, variance, no_var=False):
+
+        if no_var: 
+            self.W_var.data = self.init_var*torch.ones_like(self.W_var).data
+            self.b_var.data = self.init_var*torch.ones_like(self.b_var).data
+        else: 
+            self.W_var.data = sample_parameters(mean, variance, self.W_var.size())
+            self.b_var.data = sample_parameters(mean, variance, self.b_var.size())
+
         self.W_mean.data = sample_parameters(mean, variance, self.W_mean.size())
         self.b_mean.data = sample_parameters(mean, variance, self.b_mean.size())
         self.W_prior_mean.data = sample_parameters(mean, variance, self.W_prior_mean.size())

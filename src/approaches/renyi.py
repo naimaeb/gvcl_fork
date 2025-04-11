@@ -157,8 +157,8 @@ class Appr(object):
             for i in range(0,len(r),self.sbatch):
                 if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
                 else: b=r[i:]
-                images=torch.autograd.Variable(x[b],volatile=True)
-                targets=torch.autograd.Variable(y[b],volatile=True)
+                images=x[b]
+                targets=y[b]
 
                 task_labels = int(t) * torch.ones_like(targets)
 
