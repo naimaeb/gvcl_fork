@@ -197,29 +197,52 @@ def compute_kl_g_full(mu_q, K_q, mu_p, K_p,  **kwargs):
         return torch.Tensor([torch.nan]).to(mu_p.device)
     return kl_divergence(p, q)
     
-def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum = True, lamb = 1, initial_prior_var = 1):
-    #print("mean shape:", mean.shape)
-    #print("exp_var shape:", exp_var.shape)
-    #print("prior_mean shape:", prior_mean.shape)
-    #print("prior_exp_var shape:", prior_exp_var.shape)
+def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum=True, lamb=1, initial_prior_var=1):
+    """
+    Compute the KL divergence between multivariate diagonal Gaussian posterior and prior distributions.
+    
+    Args:
+        mean (torch.Tensor): Posterior mean (shape: [n]).
+        exp_var (torch.Tensor): Log-variance of the posterior (shape: [n]).
+        prior_mean (torch.Tensor): Prior mean (shape: [n]).
+        prior_exp_var (torch.Tensor): Log-variance of the prior (shape: [n]).
+        q: Additional parameter (unused in current implementation).
+        v: Additional parameter (unused in current implementation).
+        sum (bool): Whether to sum over dimensions.
+        lamb (float): Regularization parameter.
+        initial_prior_var (float): Initial prior variance for regularization.
+    
+    Returns:
+        torch.Tensor: KL divergence for each element in the input tensor (shape: [n]).
+        torch.Tensor: The part of the divergence corresponding to the difference in means
+        torch.Tensor: The part of the divergence corresponding to the difference in variances
+    """
+    # Variance-related terms
     trace_term = torch.exp(exp_var - prior_exp_var)
-    if lamb != 1:
-        mean_term =  (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min = 0.0) + (1/initial_prior_var))
-    else:
-        mean_term =  (mean - prior_mean)**2 * torch.exp(-prior_exp_var)
     det_term = prior_exp_var - exp_var
+    variance_divergence = 0.5 * (trace_term + det_term - 1)
+    
+    # Mean-related term
+    if lamb != 1:
+        mean_term = (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min=0.0) + (1/initial_prior_var))
+    else:
+        mean_term = (mean - prior_mean)**2 * torch.exp(-prior_exp_var)
+    mean_divergence = 0.5 * mean_term
+    
+    # Total divergence
+    total_divergence = variance_divergence + mean_divergence
     
     if sum:
-        return 0.5 * torch.sum(trace_term + mean_term + det_term - 1)
+        return torch.sum(total_divergence), torch.sum(mean_divergence), torch.sum(variance_divergence)
     else:
-        return 0.5 * (trace_term + mean_term + det_term - 1)
+        return total_divergence, mean_divergence, variance_divergence
 
 
 #extend compute kl method to choose renyi between gaussians, renyi between q-gaussians, kl between q gaussians or kl begtween gaussians
 
 def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True, lamb = 1, initial_prior_var = 1):
     """
-    Compute the Rényi divergence between univariate Gaussian posterior and prior distributions.
+    Compute the Rényi divergence between multivariate diagonal Gaussian posterior and prior distributions.
     
     Args:
         mean (torch.Tensor): Posterior mean (shape: [n]).
@@ -230,8 +253,11 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
     
     Returns:
         torch.Tensor: Rényi divergence for each element in the input tensor (shape: [n]).
+        torch.Tensor: The part of the divergence corresponding to the difference in means
+        torch.Tensor: The part of the divergence corresponding to the difference in variances
     """
     # Compute posterior variance and prior variance from log-variances
+    #print("computing renyi with q = ", str(alpha))
     var = torch.exp(log_var)  # Posterior variance
     prior_var = torch.exp(log_prior_var)  # Prior variance 
     # to check
@@ -240,21 +266,26 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
     # Compute the mixed variance (Σ_α)^*
     mixed_var = alpha * prior_var + (1 - alpha) * var
 
-    # Compute the Mahalanobis term: α (μ - μ_prior)^2 / (Σ_α)^*
+    # Compute mean-related term
     if lamb != 1:
-        mahalanobis_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
+        mean_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
+    else:
+        mean_term = alpha * (mean - prior_mean) ** 2 / mixed_var
     
-    else:
-        mahalanobis_term = alpha * (mean - prior_mean) ** 2 / mixed_var
-
-    # Compute the determinant term: log(|Σ_α^*|) - ((1 - α) log(|Σ|) + α log(|Σ_prior|))
-    log_det_term = torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var)
-
+    # Compute variance-related term
+    variance_term = -1 / (alpha - 1) * (torch.log(mixed_var) - ((1 - alpha) * log_var + alpha * log_prior_var))
+    
+    # Scale both terms by 0.5
+    mean_divergence = 0.5 * mean_term
+    variance_divergence = 0.5 * variance_term
+    
+    # Total divergence
+    total_divergence = mean_divergence + variance_divergence
+    
     if sum:
-        return 0.5 * torch.sum(mahalanobis_term - 0.5 / (alpha - 1) * log_det_term)
-    # Combine terms to compute Rényi divergence
+        return torch.sum(total_divergence), torch.sum(mean_divergence), torch.sum(variance_divergence)
     else:
-        return 0.5 * mahalanobis_term - 0.5 / (alpha - 1)
+        return total_divergence, mean_divergence, variance_divergence
 
 def compute_psi_vectorized(v, log_sigma):
     """
