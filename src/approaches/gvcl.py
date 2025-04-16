@@ -186,12 +186,12 @@ class Appr(ApprBase):
             class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
             
             #scale kl term by beta and dataset size
-            kl_term, kl_term_mean, kl_term_var = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)#/(x.shape[0])
+            kl_term, kl_term_mean, kl_term_var = self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)#/(x.shape[0])
             
             #divide by the size of the distribution, not necessary when get_reg doesn not return a tuple
-            kl_term = kl_term/(x.shape[0])
-            kl_term_mean = kl_term_mean/(x.shape[0])
-            kl_term_var = kl_term_var/(x.shape[0])
+            kl_term = self.beta*kl_term/(x.shape[0])
+            kl_term_mean = self.beta*kl_term_mean/(x.shape[0])
+            kl_term_var = self.beta*kl_term_var/(x.shape[0])
             #kl_val += kl_term.detach().data.item()
 
             '''

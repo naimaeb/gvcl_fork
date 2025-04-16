@@ -49,26 +49,66 @@ class OmniglotWithAlphabet(Omniglot):
 
         return image, character_class, alphabet_label
     
-def get(path: str = "../dat/", seed=42, **kwargs):
-    """Returns data and meta data for Sequential Omniglot."""
-    torch.manual_seed(42) 
+def get(path: str = "../dat/", seed=42, permute_tasks=False, permute_seed=42, **kwargs):
+    """Returns data and meta data for Sequential Omniglot.
     
-    data={} # dictionary task->{'train'|'valid' -> {'x'|'y'|'a': torch.tensor}} 
-    taskcla=[] # number of classes for each task
-    download_path=path+'omniglot/'
-
+    Args:
+        path: Path to data directory
+        seed: Random seed for data splitting
+        permute_tasks: If True, permutes the order of tasks
+        permute_seed: Specific seed for task permutation (uses seed if None)
+        **kwargs: Additional arguments
+        
+    Returns:
+        data: Dictionary with data for each task
+        taskcla: List of (task_id, num_classes) tuples
+        size: Size of images
+    """
+    torch.manual_seed(seed) 
     
-    data, size = _load_data(download_path, num_tasks=50, train_p=kwargs.get('train_p' , 0.6), resize=kwargs.get('resize', True), augmentation_factor=20)
+    data = {} # dictionary task->{'train'|'valid' -> {'x'|'y'|'a': torch.tensor}} 
+    taskcla = [] # number of classes for each task
+    download_path = path + 'omniglot/'
 
+    raw_data, size = _load_data(download_path, num_tasks=50, 
+                               train_p=kwargs.get('train_p', 0.6), 
+                               resize=kwargs.get('resize', True), 
+                               augmentation_factor=20)
+    
+    # Apply task permutation if requested
+    if permute_tasks:
+        permute_rng = torch.Generator()
+        permute_rng.manual_seed(permute_seed if permute_seed is not None else seed)
+        
+        # Generate permutation of task indices
+        num_tasks = len(raw_data) - 1 if 'ncla' in raw_data else len(raw_data)
+        task_permutation = torch.randperm(num_tasks, generator=permute_rng).tolist()
+        
+        # Apply permutation to data
+        permuted_data = {}
+        for new_idx, original_idx in enumerate(task_permutation):
+            permuted_data[new_idx] = raw_data[original_idx]
+        
+        # Keep any metadata
+        for key in raw_data:
+            if not isinstance(key, int):
+                permuted_data[key] = raw_data[key]
+                
+        data = permuted_data
+        print(f"Tasks permuted with seed {permute_seed if permute_seed is not None else seed}")
+        print(f"Task permutation: {task_permutation}")
+    else:
+        data = raw_data
 
     # Calculating total number of classes in the dataset
-    n=0
+    n = 0
     for t in data.keys():
-        taskcla.append((t,data[t]['ncla']))
-        n+=data[t]['ncla']
-    data['ncla']=n
+        if isinstance(t, int):  # Skip non-integer keys like 'ncla'
+            taskcla.append((t, data[t]['ncla']))
+            n += data[t]['ncla']
+    data['ncla'] = n
 
-    return data,taskcla,size 
+    return data, taskcla, size 
 
 
 def _load_data(download_dir: str, num_tasks=50, train_p=0.6, resize=False, augmentation_factor=20) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

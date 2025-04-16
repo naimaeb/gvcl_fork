@@ -289,8 +289,39 @@ sweep_params = {
     "omniglot":{
         "gvcl": {
             "kl_g": {
-                "lamb": 1000,
-                "beta": 0.05,
+                "lamb": 1,#1000,
+                "beta":1, #0.1944371405546237,
+                "lr": 0.001,
+                "nepochs": [20],
+                "optimizer": 'adam',
+                "weight_decay": 0.0,
+                "lr_schedule":False,
+            },
+            "re_g": {
+                "lamb": 1,
+                "beta": 0.4392442418248377,
+                "q":1.7071505777712046,
+                "lr": 0.001,
+                "nepochs": [20],
+                "optimizer": 'adam',
+                "weight_decay": 0.0,
+                "lr_schedule":False,
+            },
+            "t_st_mf": {
+                "lamb": 1,
+                "beta": 1,
+                "q":1.1,
+                "lr": 0.001,
+                "nepochs": [20],
+                "optimizer": 'adam',
+                "weight_decay": 0.0,
+                "lr_schedule":False,
+            },
+        },
+        "vcl": {
+            "kl_g": {
+                "lamb": 1,
+                "beta": 1,
                 "lr": 0.001,
                 "nepochs": [20],
                 "optimizer": 'adam',
@@ -300,7 +331,6 @@ sweep_params = {
             "re_g": {
                 "lamb": 1,
                 "beta": 1,
-                "q":2.4,
                 "lr": 0.001,
                 "nepochs": [20],
                 "optimizer": 'adam',

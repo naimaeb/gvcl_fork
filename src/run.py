@@ -2,7 +2,7 @@ import sys,os,argparse,time
 import numpy as np
 import torch
 from best_hyperparams import get_best_params, sweep_params
-
+import random
 import utils
 import setup
 import wandb
@@ -18,6 +18,7 @@ root_path = './' #change to match running directory
 args, network, approach, dataloader = setup.get_args()
 
 # Seed
+random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if torch.cuda.is_available(): torch.cuda.manual_seed(args.seed)

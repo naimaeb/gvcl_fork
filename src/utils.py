@@ -231,7 +231,6 @@ def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum=True, lamb=
     
     # Total divergence
     total_divergence = variance_divergence + mean_divergence
-    
     if sum:
         return torch.sum(total_divergence), torch.sum(mean_divergence), torch.sum(variance_divergence)
     else:
@@ -286,7 +285,6 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
         return torch.sum(total_divergence), torch.sum(mean_divergence), torch.sum(variance_divergence)
     else:
         return total_divergence, mean_divergence, variance_divergence
-
 def compute_psi_vectorized(v, log_sigma):
     """
     Compute Ψ for the d-dimensional case using degrees of freedom v.
