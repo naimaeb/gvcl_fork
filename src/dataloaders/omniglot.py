@@ -49,7 +49,7 @@ class OmniglotWithAlphabet(Omniglot):
 
         return image, character_class, alphabet_label
     
-def get(path: str = "../dat/", seed=42, permute_tasks=False, permute_seed=42, **kwargs):
+def get(path: str = "../dat/", seed=42, permute_tasks=True, permute_seed=42, **kwargs):
     """Returns data and meta data for Sequential Omniglot.
     
     Args:
@@ -65,6 +65,8 @@ def get(path: str = "../dat/", seed=42, permute_tasks=False, permute_seed=42, **
         size: Size of images
     """
     torch.manual_seed(seed) 
+    print(f"permute_tasks = {permute_tasks}")
+
     
     data = {} # dictionary task->{'train'|'valid' -> {'x'|'y'|'a': torch.tensor}} 
     taskcla = [] # number of classes for each task
