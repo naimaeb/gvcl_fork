@@ -19,6 +19,7 @@ def get_args():
     parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 't_st_mf', 't_st_k1', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
     parser.add_argument('--q', default = 1.01, type=float, required=False)
     parser.add_argument('--v',type=int,default=1,help='(default=%(default)f)')
+    parser.add_argument('--use_deformed_likelihood', type=bool, default=False, help='Whether to use deformed likelihood for re_g regularization')
     parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
     parser.add_argument('--nepochs', nargs='+', type=int, required=False, help='List of epochs for each task')
     parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
@@ -38,16 +39,7 @@ def get_args():
     parser.add_argument('--sbatch', type=int, default=64, help='Batch size')
     parser.add_argument('--optimizer', type=str, default='sgd', help='Optimizer')
     args=parser.parse_args()
-    if args.output=='':
-        args.output=root_path+'res/'+args.experiment+'/'+args.approach+'/'+args.reg_type+'/'+str(args.q)+'/'+str(args.seed)+'.txt' #change to parent or current directory depending if you run a test notebook or the run.py script directly
-        if not os.path.exists(root_path+'res/'+args.experiment+'/'+args.approach+'/'+args.reg_type+'/'+str(args.q)+'/'): 
-            os.makedirs(root_path+'res/'+args.experiment+'/'+args.approach+'/'+args.reg_type+'/'+str(args.q)+'/')
-    print('='*100)
-    print('Arguments =')
-    for arg in vars(args):
-        print('\t'+arg+':',getattr(args,arg))
-    print('='*100)
-        
+    
     # Args -- Experiment
     if args.experiment=='mnist2':
         from dataloaders import mnist2 as dataloader

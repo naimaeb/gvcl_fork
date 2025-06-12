@@ -65,6 +65,18 @@ else:
     if hasattr(args, 'sweep_name'):
         delattr(args, 'sweep_name')
 
+# Set output path after all parameters are finalized
+if args.output == '':
+    args.output = args.root_path + 'res/' + args.experiment + '/' + args.approach + '/' + args.reg_type + '/' + str(args.q) + '/' + str(args.seed) + '.txt'
+    if not os.path.exists(args.root_path + 'res/' + args.experiment + '/' + args.approach + '/' + args.reg_type + '/' + str(args.q) + '/'):
+        os.makedirs(args.root_path + 'res/' + args.experiment + '/' + args.approach + '/' + args.reg_type + '/' + str(args.q) + '/')
+
+# Print final arguments after all modifications
+print('='*100)
+print('Final Arguments =')
+for arg in vars(args):
+    print('\t'+arg+':',getattr(args,arg))
+print('='*100)
 
 wandb.init(config=args, project=wandb_setup['project-name'], entity=wandb_setup['entity'])
 
@@ -81,6 +93,7 @@ print("approach.lamb", appr.lamb)
 print("approach.q", appr.q)
 print("approach.v", appr.v)
 print("approach.reg", appr.reg_type)
+print("approach.use_deformed_likelihood", appr.use_deformed_likelihood)
 
 print("criterion", appr.criterion)
 utils.print_optimizer_config(appr.optimizer)
@@ -175,9 +188,14 @@ for t,ncla in taskcla:
                 f"test_loss_task_{u}": test_loss,
                 f"test_acc_task_{u}": test_acc
             })
-    avg_accuracy = np.mean(acc[t, :])
-    print(f'Average accuracy: {avg_accuracy * 100:.1f}%')
-    wandb.log({"epoch":step, "avg_accuracy": avg_accuracy})
+    avg_accuracy = np.mean(acc[t, :t+1])
+    bwt = np.mean(acc[t, :t+1] - acc.diagonal()[:t+1])
+    print(f'Average accuracy: {avg_accuracy * 100:.1f}% and BWT: {bwt * 100:.1f}%')
+    wandb.log({
+        "epoch": step,
+        "avg_accuracy": avg_accuracy,
+        "bwt": bwt
+    })
 
     # Save output_dict if using toy2d approach
     if args.approach == 'toy2d':

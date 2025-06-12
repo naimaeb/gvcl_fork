@@ -21,7 +21,7 @@ import numpy as np
 from torch.nn import init
 from functools import partial
 
-from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t, compute_re_qg, compute_kl_qg
+from . import compute_kl_g, compute_re_g, compute_t_st, compute_t_st_mf, sample_student_t, compute_re_qg, compute_kl_qg, compute_u_lambda
 
 
 device = 'cuda:0'
@@ -148,7 +148,7 @@ class MultiHeadCNN(nn.Module):
         self.device = device
         return super().to(device)
 
-    def forward(self, x, task_labels, reg_type, v, num_samples=1, tasks = None):
+    def forward(self, x, task_labels, reg_type, v, use_deformed_likelihood, num_samples=1, tasks = None):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
@@ -162,7 +162,7 @@ class MultiHeadCNN(nn.Module):
         else:x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
-            x = conv_layer(x,reg_type,v, num_samples)  
+            x = conv_layer(x,reg_type,v, use_deformed_likelihood, num_samples)  
             x = self.act(x) 
             if i in self.pool_indices:
                 if 't_st'in reg_type:x = x.view(-1, *x.shape[2:])
@@ -175,7 +175,7 @@ class MultiHeadCNN(nn.Module):
             x = x.view(num_samples, batch_size, -1)
         
         for i, layer in enumerate(self.fc_layers):
-            x = layer(x, reg_type,v) 
+            x = layer(x, reg_type,v, use_deformed_likelihood) 
             x = self.act(x)
             
         self.pre_head = x
@@ -277,6 +277,39 @@ class MultiHeadCNN(nn.Module):
         if not self.single_head:
             for t in updated_tasks:
                 self.heads[t].add_new_task(reset_variance = False)
+
+    def get_layer_variances(self, task, prior=False):
+        """
+        Collect variances from all layers in a structured dictionary.
+        
+        Args:
+            task: current task number
+            prior: if True, collect prior variances, else collect current variances
+            
+        Returns:
+            Dictionary containing variances for each layer's weights and biases
+        """
+        variances = {}
+        
+        # Collect FC layer variances
+        for i, layer in enumerate(self.fc_layers):
+            w_var, b_var = layer.get_var(prior)
+            variances[f'fc_{i}_weight_var'] = w_var.mean().item()
+            variances[f'fc_{i}_bias_var'] = b_var.mean().item()
+            
+        # Collect Conv layer variances
+        for i, layer in enumerate(self.conv_layers):
+            w_var, b_var = layer.get_var(prior)
+            variances[f'conv_{i}_weight_var'] = w_var.mean().item()
+            variances[f'conv_{i}_bias_var'] = b_var.mean().item()
+            
+        # Collect Head variances
+        head_idx = 0 if self.single_head else task
+        w_var, b_var = self.heads[head_idx].get_var(prior)
+        variances[f'head_{task}_weight_var'] = w_var.mean().item()
+        variances[f'head_{task}_bias_var'] = b_var.mean().item()
+        
+        return variances
 
 
 class MultiHeadMLP(nn.Module):
@@ -441,6 +474,33 @@ class MultiHeadMLP(nn.Module):
         if not self.single_head:
             for t in updated_tasks:
                 self.heads[t].add_new_task(reset_variance = False)
+
+    def get_layer_variances(self, task, prior=False):
+        """
+        Collect variances from all layers in a structured dictionary.
+        
+        Args:
+            task: current task number
+            prior: if True, collect prior variances, else collect current variances
+            
+        Returns:
+            Dictionary containing variances for each layer's weights and biases
+        """
+        variances = {}
+        
+        # Collect FC layer variances
+        for i, layer in enumerate(self.fc_layers):
+            w_var, b_var = layer.get_var(prior)
+            variances[f'fc_{i}_weight_var'] = w_var.mean().item()
+            variances[f'fc_{i}_bias_var'] = b_var.mean().item()
+            
+        # Collect Head variances
+        head_idx = 0 if self.single_head else task
+        w_var, b_var = self.heads[head_idx].get_var(prior)
+        variances[f'head_{task}_weight_var'] = w_var.mean().item()
+        variances[f'head_{task}_bias_var'] = b_var.mean().item()
+        
+        return variances
 
 class MultiHeadFiLMCNN(nn.Module):
     def __init__(self, input_shape, conv_sizes, fc_sizes, output_dims, film_type = 'point', single_head = False, global_avg_pool = False, prior_var = 1, init_vars = []):
@@ -817,21 +877,43 @@ class MFConvLayer(torch.nn.modules.conv._ConvNd):
 
         return torch.stack(outputs)
 
-    def forward(self, input, reg_type, v, num_samples=-1):
-        if 't_st'in reg_type:
+    def forward(self, input, reg_type, v, use_deformed_likelihood, num_samples=-1):
+        if 't_st' in reg_type:
             return self.forward_t_st(input, v, num_samples)
         
-        output_mean =  self.conv2d_forward(input, self.weight, self.bias)
-        output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
-
-        if 't_st'in reg_type:
-            #print("Student-t sampling")
-            eps = sample_student_t(output_mean.shape, v, device=device)
-        else:
-            #print("Normal sampling")
+        if  use_deformed_likelihood:
+            # Compute u_lambda parameters for weights
+            mu_u_w, logvar_u_w = compute_u_lambda(
+                self.weight, self.weight_var,
+                self.W_prior_mean, self.W_prior_var,
+                v
+            )
+            
+            # Compute u_lambda parameters for biases
+            mu_u_b, logvar_u_b = compute_u_lambda(
+                self.bias, self.bias_var,
+                self.b_prior_mean, self.b_prior_var,
+                v
+            )
+            
+            # Compute output using input and u_lambda parameters
+            output_mean = self.conv2d_forward(input, mu_u_w, mu_u_b)
+            output_var = self.conv2d_forward(input**2, torch.exp(logvar_u_w), torch.exp(logvar_u_b))
+            
+            # Sample using reparameterized output
             eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
-        output = output_mean + torch.sqrt(output_var + 1e-9) * eps
-
+            output = output_mean + torch.sqrt(output_var + 1e-9) * eps
+        else:
+            # Regular MC sampling for other cases
+            output_mean = self.conv2d_forward(input, self.weight, self.bias)
+            output_var = self.conv2d_forward(input**2, torch.exp(self.weight_var), torch.exp(self.bias_var))
+            
+            if 't_st' in reg_type:
+                eps = sample_student_t(output_mean.shape, v, device=device)
+            else:
+                eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+            output = output_mean + torch.sqrt(output_var + 1e-9) * eps
+            
         return output
 
 
@@ -895,7 +977,7 @@ class MFLinearLayer(nn.Module):
     
 
     def get_current_params(self):
-        return [self.W_mean, self.b_mean]
+        return [self.W_mean, self.b_mean, self.W_var, self.b_var]
     
     def add_new_task(self, reset_variance = True):
         self.W_prior_mean = self.W_mean.clone().detach().requires_grad_(False)
@@ -952,19 +1034,43 @@ class MFLinearLayer(nn.Module):
         b_kl, b_mean_div, b_var_div = kl_function(self.b_mean, self.b_var, self.b_prior_mean, self.b_prior_var, q, v, lamb=lamb, initial_prior_var=self.prior_var)
         return W_kl + b_kl, W_mean_div + b_mean_div, W_var_div + b_var_div
 
-    def forward(self, x, reg_type, v):
+    def forward(self, x, reg_type, v, use_deformed_likelihood):
+        # Compute mean and variance
         output_mean = x.matmul(self.W_mean.t()) + self.b_mean.unsqueeze(0).unsqueeze(0)
         output_std = torch.sqrt((x**2).matmul(torch.exp(self.W_var.t())) + torch.exp(self.b_var).unsqueeze(0).unsqueeze(0))
-        if  't_st'in reg_type:
-            #print("Student-t sampling")
-            eps = sample_student_t(output_mean.shape, v, device=device)
-        else:
-            #print("Normal sampling")
+        
+        if use_deformed_likelihood:
+            # Compute u_lambda parameters for weights
+            mu_u_w, logvar_u_w = compute_u_lambda(
+                self.W_mean, self.W_var,
+                self.W_prior_mean, self.W_prior_var,
+                v
+            )
+            
+            # Compute u_lambda parameters for biases
+            mu_u_b, logvar_u_b = compute_u_lambda(
+                self.b_mean, self.b_var,
+                self.b_prior_mean, self.b_prior_var,
+                v
+            )
+            
+            # Compute output using input x and u_lambda parameters
+            output_mean = x.matmul(mu_u_w.t()) + mu_u_b.unsqueeze(0).unsqueeze(0)
+            output_std = torch.sqrt((x**2).matmul(torch.exp(logvar_u_w.t())) + torch.exp(logvar_u_b).unsqueeze(0).unsqueeze(0))
+            
+            # Sample using reparameterized output
             eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
-
-        output = output_mean + (eps * output_std)
+            output = output_mean + (eps * output_std)
+        else:
+            # Regular MC sampling for other cases
+            if 't_st' in reg_type:
+                eps = sample_student_t(output_mean.shape, v, device=device)
+            else:
+                eps = torch.empty(output_mean.shape, device=device).normal_(mean=0,std=1)
+            output = output_mean + (eps * output_std)
+            
         return output
-    
+
     def get_var(self, prior=False):
         if prior:
             return [torch.exp(self.W_prior_var), torch.exp(self.b_prior_var)]

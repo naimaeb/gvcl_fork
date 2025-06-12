@@ -221,7 +221,6 @@ def compute_kl_g(mean, exp_var, prior_mean, prior_exp_var, q, v, sum=True, lamb=
     trace_term = torch.exp(exp_var - prior_exp_var)
     det_term = prior_exp_var - exp_var
     variance_divergence = 0.5 * (trace_term + det_term - 1)
-    
     # Mean-related term
     if lamb != 1:
         mean_term = (mean - prior_mean)**2 * (lamb * torch.clamp(torch.exp(-prior_exp_var) - (1/initial_prior_var), min=0.0) + (1/initial_prior_var))
@@ -269,6 +268,7 @@ def compute_re_g(mean, log_var, prior_mean, log_prior_var, alpha, v, sum = True,
     if lamb != 1:
         mean_term = alpha * (mean - prior_mean) ** 2 /(alpha * prior_var_lamda + (1 - alpha) * var)
     else:
+        #mean_term = (mean - prior_mean)**2 * (alpha * torch.clamp(1/mixed_var - (1/initial_prior_var), min=0.0) + (1/initial_prior_var))
         mean_term = alpha * (mean - prior_mean) ** 2 / mixed_var
     
     # Compute variance-related term
@@ -660,3 +660,103 @@ def sample_student_t(shape, df, device="cuda", dtype=torch.float32):
     
     # Apply location and scale
     return Y
+
+def compute_u_lambda(mu_q, logvar_q, mu_p, logvar_p, lam):
+    """
+    Compute the u_lambda parameters for the generalized ELBO.
+    
+    Args:
+        mu_q (torch.Tensor): Posterior mean
+        logvar_q (torch.Tensor): Posterior log variance
+        mu_p (torch.Tensor): Prior mean
+        logvar_p (torch.Tensor): Prior log variance
+        lam (float): Lambda parameter for the generalized ELBO
+        
+    Returns:
+        tuple: (mu_u, logvar_u) - The u_lambda parameters
+    """
+    var_q = torch.exp(logvar_q)
+    var_p = torch.exp(logvar_p)
+
+    denom = lam * var_q + (1 - lam) * var_p
+    mu_u = (lam * var_q * mu_p + (1 - lam) * var_p * mu_q) / denom
+    var_u = (var_q * var_p) / denom
+    logvar_u = torch.log(var_u + 1e-8)
+
+    return mu_u, logvar_u
+
+def log_lambda(x, lam):
+    """
+    Compute the lambda-logarithm.
+    
+    Args:
+        x (torch.Tensor): Input tensor
+        lam (float): Lambda parameter
+        
+    Returns:
+        torch.Tensor: The lambda-logarithm of x
+    """
+    if lam == 1.0:
+        return torch.log(x + 1e-8)
+    return (x.pow(1 - lam) - 1) / (1 - lam)
+
+def kappa_lambda(t, lam):
+    """
+    Compute the kappa function for the generalized ELBO.
+    
+    Args:
+        t (torch.Tensor): Input tensor
+        lam (float): Lambda parameter
+        
+    Returns:
+        torch.Tensor: The kappa function of t
+    """
+    return torch.log(lam * t + 1) / lam
+
+def generalized_elbo(x, mu_q, logvar_q, mu_p, logvar_p, decoder, lam, n_samples=1):
+    """
+    Compute the generalized ELBO.
+    
+    Args:
+        x (torch.Tensor): Input data
+        mu_q (torch.Tensor): Posterior mean
+        logvar_q (torch.Tensor): Posterior log variance
+        mu_p (torch.Tensor): Prior mean
+        logvar_p (torch.Tensor): Prior log variance
+        decoder: The decoder function
+        lam (float): Lambda parameter
+        n_samples (int): Number of samples for Monte Carlo estimation
+        
+    Returns:
+        torch.Tensor: The generalized ELBO value
+    """
+    # Compute u_lambda parameters
+    mu_u, logvar_u = compute_u_lambda(mu_q, logvar_q, mu_p, logvar_p, lam)
+    std_u = torch.exp(0.5 * logvar_u)
+
+    # Sample from u_lambda using reparameterization
+    eps = torch.randn((n_samples,) + mu_u.shape).to(mu_u.device)  # [L, B, D]
+    z = mu_u.unsqueeze(0) + eps * std_u.unsqueeze(0)              # [L, B, D]
+
+    # Decode
+    x_recon = decoder(z.view(-1, z.shape[-1]))                    # [L*B, D]
+    x_recon = x_recon.view(n_samples, *x.shape)                   # [L, B, D]
+
+    # Gaussian likelihood
+    log_pxz = -0.5 * ((x_recon - x.unsqueeze(0)) ** 2).sum(dim=-1)  # [L, B]
+    pxz = torch.exp(log_pxz)
+    log_lam_p = log_lambda(pxz, lam)  # [L, B]
+
+    # Mean over samples
+    expectation = log_lam_p.mean(dim=0)  # [B]
+    recon_term = -kappa_lambda(expectation, lam).mean()  # scalar
+
+    # KL divergence (analytical)
+    var_q = torch.exp(logvar_q)
+    var_p = torch.exp(logvar_p)
+    kl = 0.5 * torch.sum(
+        logvar_p - logvar_q + (var_q + (mu_q - mu_p) ** 2) / var_p - 1,
+        dim=1
+    ).mean()
+
+    return recon_term + kl

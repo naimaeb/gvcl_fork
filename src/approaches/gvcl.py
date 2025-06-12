@@ -6,12 +6,13 @@ import torch.nn.functional as F
 
 from approaches import ApprBase
 import utils
+from utils import compute_u_lambda, log_lambda, kappa_lambda, generalized_elbo
 import wandb
 
 class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', use_deformed_likelihood = False, q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -21,6 +22,7 @@ class Appr(ApprBase):
             - step_time (int)
             - discount_factor (float)
             - total_steps (int)
+            - use_deformed_likelihood (bool) - whether to use deformed likelihood for re_g
         """
 
         super().__init__(model, device=device)
@@ -51,6 +53,7 @@ class Appr(ApprBase):
             self.v = v #dof set for t_st, but q_varies
         
         self.train_samples = train_samples
+        self.use_deformed_likelihood = kwargs.get("use_deformed_likelihood", False)  # Default to False
 
         self.equalize_epochs = True
         self.exp = kwargs.get("experiment", "")
@@ -76,17 +79,22 @@ class Appr(ApprBase):
 
     #todo: implement get optimizer with the diagonal fisher or block version of it
     def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
-
         num_epochs_to_train = self.get_training_epochs(len(xtrain), t)
         print('training for {} epochs'.format(num_epochs_to_train))
 
         lr=self.lr
 
-
         if t != 0:
             #update posterior to prior for everything except the first task
-            self.model.add_task_body_params([t-1])    
-
+            self.model.add_task_body_params([t-1]) 
+        
+        # Log initial variances at the start of training
+        init_vars = self.model.get_layer_variances(t, prior=True)
+        wandb.log({
+            'task': t,
+            'epoch': 0,
+            **{f'init_{k}': v for k, v in init_vars.items()}
+        })
 
         parameters = self.model.get_task_specific_parameters(t)
         self.optimizer=self._get_optimizer(parameters, lr)
@@ -103,13 +111,10 @@ class Appr(ApprBase):
             xtrain = torch.cat([xtrain, xvalid], dim = 0)
             ytrain = torch.cat([ytrain, yvalid], dim = 0)
 
-
-
         # Loop epochs
         for e in range(num_epochs_to_train):
             # Train
             clock0=time.time()
-            #kl_val, renyi_val, class_loss, kl_loss, kl_loss_m, kl_loss_v, re_loss, re_loss_m, re_loss_v, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
             class_loss, kl_loss, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
             clock1=time.time()
             clock2=time.time()
@@ -123,28 +128,19 @@ class Appr(ApprBase):
                 'train_acc': train_acc,
                 'lr': self.optimizer.param_groups[0]['lr']
             })
-            '''
-            wandb.log({
-                'epoch': step+1,
-                'class_loss': class_loss,
-                "kl_val": kl_val,
-                "renyi_val": renyi_val,
-                "reg_val_diff": kl_val - renyi_val,
-                'kl_loss': kl_loss,
-                'kl_loss_mean': kl_loss_m,
-                'kl_loss_var': kl_loss_v,
-                'renyi_loss': re_loss,
-                'renyi_loss_mean': re_loss_m,
-                'renyi_loss_var': re_loss_v,
-                'reg_diff': kl_loss - re_loss,
-                'total_loss': total_loss,
-                'train_acc': train_acc,
-                'lr': self.optimizer.param_groups[0]['lr']
-            })
-            '''
+            
             step=step+1
             print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f} total_loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0)/xtrain.size(0),class_loss, kl_loss, total_loss,100*train_acc))
+
+        # Log final variances at the end of training
+        final_vars = self.model.get_layer_variances(t, prior=False)
+        wandb.log({
+            'task': t,
+            'epoch': num_epochs_to_train,
+            **{f'final_{k}': v for k, v in final_vars.items()}
+        })
+        
         return step
 
 
@@ -152,9 +148,9 @@ class Appr(ApprBase):
     def train_epoch(self,t,x,y):
         self.model.train()
 
-        r=np.arange(x.size(0))
+        r = np.arange(x.size(0))
         np.random.shuffle(r)
-        r=torch.LongTensor(r).cuda()
+        r = torch.LongTensor(r).cuda()
 
         train_samples = self.train_samples
         
@@ -162,9 +158,7 @@ class Appr(ApprBase):
         epoch_kl_loss = 0
         epoch_total_loss = 0
         total_hits = 0
-        #kl_val = 0
-        #renyi_val = 0
-
+        
         # Loop batches
         for i in range(0,len(r),self.sbatch):
             if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
@@ -172,18 +166,37 @@ class Appr(ApprBase):
             
             images = x[b]
             targets = y[b]
-        
-
             task_labels = int(t) * torch.ones_like(targets)
-
-            # Forward current model
-            outputs=self.model(images, task_labels, self.reg_type, v = self.v, tasks = [t], num_samples = train_samples)
-            output=outputs[t]
-
-            #calculate loss for every MC sample
+            
+            # Forward pass
+            outputs = self.model(images, task_labels, self.reg_type, v=self.v, use_deformed_likelihood=self.use_deformed_likelihood, tasks=[t], num_samples=train_samples)
+            output = outputs[t]
+            
+            # Reshape for loss computation
             stacked_targets = targets.repeat([train_samples])
             flattened_output = output.view(-1, output.shape[-1])
-            class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
+            
+            # Compute classification loss based on reg_type and whether to use deformed likelihood
+            if self.use_deformed_likelihood:
+                # Deformed implementation for Renyi divergence
+                probs = F.softmax(flattened_output, dim=-1)
+                
+                # Deformed logarithm: logq(x) = (x^(q) - 1)/q
+                deformed_log_probs = (probs**(self.q) - 1)/self.q
+                
+                # Get target probabilities
+                target_probs = F.one_hot(stacked_targets, num_classes=probs.shape[-1])
+                
+                # Compute expectation of deformed log likelihood
+                expectation = (deformed_log_probs * target_probs).sum(dim=-1)
+                
+                # Kappa function: κλ(t) = log[λt + 1]/λ where λ = 1-q
+                lambda_param = 1 - self.q
+                class_loss = -torch.log(lambda_param * expectation + 1) / lambda_param
+                class_loss = class_loss.mean()
+            else:
+                # Regular MC sampling for KL divergence
+                class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction='mean')
             
             #scale kl term by beta and dataset size
             kl_term, kl_term_mean, kl_term_var = self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)#/(x.shape[0])
@@ -266,7 +279,7 @@ class Appr(ApprBase):
                 task_labels = int(t) * torch.ones_like(targets)
 
                 # Forward
-                outputs=self.model(images, task_labels, reg_type = self.reg_type, v = self.v, tasks = [t], num_samples = 20)
+                outputs=self.model(images, task_labels, reg_type = self.reg_type, v = self.v, use_deformed_likelihood=self.use_deformed_likelihood, tasks = [t], num_samples = 20)
                 output=outputs[t]
                 probs = F.softmax(output, dim=2).mean(dim = 0)
                 _,pred=probs.max(1)

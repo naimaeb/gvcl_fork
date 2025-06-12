@@ -147,9 +147,9 @@ sweep_params = {
     "cifar":{
         "gvcl": {
             "kl_g": {
-                "lamb": 1000,
-                "beta": 0.2,
-                "lr": 0.001,
+                "lamb": 1,
+                "beta": 0.8466339144597416,
+                "lr": 0.0001,
                 "nepochs": [20],
                 "optimizer": 'adam',
                 "weight_decay": 0.0,
@@ -157,14 +157,12 @@ sweep_params = {
             },
             "re_g": {
                 "lamb": 1,
-                "beta": 0.05,
-                "lr": 0.001,
-                "q": 2.374099324424876,
+                "beta": 0.1,
+                "lr": 0.0001,
                 "nepochs": [20],
-                "weight_decay": 0.0000812169462000496,
-                "scheduler_type":'cosine_anneal',
-                "lr_schedule":True,
-                "momentum": 0.99,
+                "optimizer": 'adam',
+                "weight_decay": 0.0,
+                "lr_schedule":False,
             },
         },
         "vcl": {
