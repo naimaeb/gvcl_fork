@@ -182,7 +182,7 @@ class MultiHeadCNN(nn.Module):
 
         for j in tasks:
             head_index = 0 if self.single_head else j
-            task_output = self.heads[head_index](x,reg_type,v)
+            task_output = self.heads[head_index](x,reg_type,v, use_deformed_likelihood)
             outputs[j] = task_output.reshape([num_samples, batch_size, -1])
         for j in excluded_tasks:
             outputs[j] = torch.zeros_like(task_output, device = device)
@@ -604,14 +604,12 @@ class MultiHeadFiLMCNN(nn.Module):
         self.device = device
         return super().to(device)
 
-    def forward(self, x, task_labels, reg_type, v, num_samples=1, tasks = None):
+    def forward(self, x, task_labels, reg_type, v, use_deformed_likelihood, num_samples=1, tasks = None):
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
         else:
             excluded_tasks = [i for i in range(self.num_tasks) if i not in tasks]
-
-        num_total_tasks = len(tasks)
 
         outputs = [None for j in range(self.num_tasks)]
 
@@ -620,11 +618,8 @@ class MultiHeadFiLMCNN(nn.Module):
         else:x = x.repeat([num_samples,1,1,1])
         
         for i, conv_layer in enumerate(self.conv_layers):
-            x = conv_layer(x,reg_type,v, num_samples) 
-            if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
-                x = self.conv_film_layers[i](x, task_labels, num_samples)
-            
-            x = F.relu(x) 
+            x = conv_layer(x,reg_type,v, use_deformed_likelihood, num_samples)  
+            x = self.act(x) 
             if i in self.pool_indices:
                 if 't_st'in reg_type:x = x.view(-1, *x.shape[2:])
                 x = F.max_pool2d(x, kernel_size = 2, stride = 2)
@@ -636,17 +631,14 @@ class MultiHeadFiLMCNN(nn.Module):
             x = x.view(num_samples, batch_size, -1)
         
         for i, layer in enumerate(self.fc_layers):
-            x = layer(x, reg_type,v)
-            if not self.film_type == 'none': # excluding the film layer from the forward pass when 'none'
-                x = self.fc_film_layers[i](x, task_labels, num_samples)
-            
-            x = F.relu(x)
+            x = layer(x, reg_type,v, use_deformed_likelihood) 
+            x = self.act(x)
             
         self.pre_head = x
 
         for j in tasks:
             head_index = 0 if self.single_head else j
-            task_output = self.heads[head_index](x,reg_type,v)
+            task_output = self.heads[head_index](x,reg_type,v, use_deformed_likelihood)
             outputs[j] = task_output.reshape([num_samples, batch_size, -1])
         for j in excluded_tasks:
             outputs[j] = torch.zeros_like(task_output, device = device)
