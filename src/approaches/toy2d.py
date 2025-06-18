@@ -11,7 +11,7 @@ import wandb
 class Appr(ApprBase):
     """ Class implementing GVCL approach"""
 
-    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
+    def __init__(self,model, device = "cpu", nepochs=[100], sbatch=64,lr=0.05, clipgrad=100, lamb = 1, beta = 1, reg_type = 'kl_g', use_deformed_likelihood = False, q = 2, v = 1, train_samples = 10 , args=None, **kwargs):
         """
         Extra flags accepted: 
             - optimizer (str) \in ['sgd','adam']
@@ -54,6 +54,7 @@ class Appr(ApprBase):
 
         self.equalize_epochs = True
         self.exp = kwargs.get("experiment", "")
+        self.use_deformed_likelihood = kwargs.get("use_deformed_likelihood", False)  # Default to False
     
         self.extra_arguments=dict(kwargs) # collecting all the extra flags into this dictionary (note: it may be empty)
         # example of extra flags: all optimizer hyperparameters or lr scheduller hyperparameters 
@@ -145,7 +146,7 @@ class Appr(ApprBase):
             #task_labels = int(t) * torch.ones_like(targets)
 
             # Forward current model
-            outputs=self.model(images, self.reg_type, v = self.v, tasks = [t], num_samples = train_samples)
+            outputs=self.model(images, self.reg_type, v = self.v, use_deformed_likelihood=self.use_deformed_likelihood, tasks = [t], num_samples = train_samples)
             output=outputs[t]
 
             #calculate loss for every MC sample
@@ -153,8 +154,12 @@ class Appr(ApprBase):
             flattened_output = output.view(-1, output.shape[-1])
             class_loss = F.cross_entropy(flattened_output, stacked_targets, reduction = 'mean')
             
-            #scale kl term by beta and dataset size
-            kl_term = self.beta * self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)/(x.shape[0])
+            kl_term, kl_term_mean, kl_term_var = self.model.get_reg(lamb = self.lamb, reg_type = self.reg_type, q = self.q, v = self.v)#/(x.shape[0])
+            
+            #divide by the size of the distribution, not necessary when get_reg doesn not return a tuple
+            kl_term = self.beta*kl_term/(x.shape[0])
+            kl_term_mean = self.beta*kl_term_mean/(x.shape[0])
+            kl_term_var = self.beta*kl_term_var/(x.shape[0])
             loss = class_loss + kl_term
 
 
@@ -205,7 +210,7 @@ class Appr(ApprBase):
                 #task_labels = int(t) * torch.ones_like(targets)
 
                 # Forward
-                outputs=self.model(images, reg_type = self.reg_type, v = self.v, tasks = [t], num_samples = 20)
+                outputs=self.model(images, reg_type = self.reg_type, v = self.v, use_deformed_likelihood=self.use_deformed_likelihood, tasks = [t], num_samples = 20)
                 output=outputs[t]
                 probs = F.softmax(output, dim=2).mean(dim = 0)
                 _,pred=probs.max(1)

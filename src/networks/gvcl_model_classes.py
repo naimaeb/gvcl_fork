@@ -381,7 +381,9 @@ class MultiHeadMLP(nn.Module):
         self.device = device
         return super().to(device)
 
-    def forward(self, x, reg_type, v, num_samples=1, tasks = None):
+    def forward(self, x, reg_type, v, use_deformed_likelihood, num_samples=1, tasks = None):
+        if use_deformed_likelihood:
+            raise NotImplementedError
         if tasks is None:
             tasks = range(self.num_tasks)
             excluded_tasks = []
@@ -395,14 +397,14 @@ class MultiHeadMLP(nn.Module):
         else:x = x.repeat([num_samples,1,1,1])
         
         for i, layer in enumerate(self.fc_layers):
-            x = layer(x, reg_type,v) 
+            x = layer(x, reg_type,v, use_deformed_likelihood) 
             x = self.act(x)
             
         self.pre_head = x
 
         for j in tasks:
             head_index = 0 if self.single_head else j
-            task_output = self.heads[head_index](x,reg_type,v)
+            task_output = self.heads[head_index](x,reg_type,v, use_deformed_likelihood)
             outputs[j] = task_output.reshape([num_samples, batch_size, -1])
         for j in excluded_tasks:
             outputs[j] = torch.zeros_like(task_output, device = device)

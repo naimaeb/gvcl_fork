@@ -157,7 +157,7 @@ sweep_params = {
             },
             "re_g": {
                 "lamb": 1,
-                "beta": 0.1,
+                "beta": 1,
                 "lr": 0.0001,
                 "nepochs": [20],
                 "optimizer": 'adam',
@@ -177,7 +177,7 @@ sweep_params = {
             "re_g": {
                 "lamb": 1,
                 "beta": 1,
-                "lr": 0.00017068567319615476,
+                "lr": 0.0001,
                 "nepochs": [20],
                 "optimizer":'adam',
                 "lr_schedule":False,
@@ -263,7 +263,6 @@ sweep_params = {
             "re_g": {
                 "lamb": 1,
                 "beta": 0.4289912008467947,
-                "q":1.5,
                 "lr": 0.1,
                 "nepochs": [10],
                 "momentum": 0.,

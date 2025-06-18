@@ -77,7 +77,7 @@ class Appr(ApprBase):
     
 
 
-    #todo: implement get optimizer with the diagonal fisher or block version of it
+    
     def train(self,t,xtrain,ytrain,xvalid,yvalid, step=None):
         num_epochs_to_train = self.get_training_epochs(len(xtrain), t)
         print('training for {} epochs'.format(num_epochs_to_train))
