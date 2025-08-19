@@ -198,7 +198,7 @@ def get_args():
 
     elif 'omniglot' == args.experiment:
         if 'vcl' in args.approach:
-            print("using vcl model smnist")
+            print("using vcl model omniglot")
             from networks.gvcl_models import OmniglotNet as network
         # print("Film_type", network.get_film_type())
         elif 'fsvi'in args.approach:

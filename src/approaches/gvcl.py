@@ -87,7 +87,7 @@ class Appr(ApprBase):
         if t != 0:
             #update posterior to prior for everything except the first task
             self.model.add_task_body_params([t-1]) 
-        
+        '''
         # Log initial variances at the start of training
         init_vars = self.model.get_layer_variances(t, prior=True)
         wandb.log({
@@ -95,7 +95,7 @@ class Appr(ApprBase):
             'epoch': 0,
             **{f'init_{k}': v for k, v in init_vars.items()}
         })
-
+        '''
         parameters = self.model.get_task_specific_parameters(t)
         self.optimizer=self._get_optimizer(parameters, lr)
         total_steps = num_epochs_to_train * len(ytrain) // self.sbatch
@@ -115,24 +115,28 @@ class Appr(ApprBase):
         for e in range(num_epochs_to_train):
             # Train
             clock0=time.time()
-            class_loss, kl_loss, total_loss, train_acc  = self.train_epoch(t,xtrain,ytrain)
+            class_loss, kl_loss, _, _, total_loss, train_acc, avg_grad_norm  = self.train_epoch(t,xtrain,ytrain)
             clock1=time.time()
             clock2=time.time()
 
             #include wandb logging for these terms
+            all_vars = self.model.collect_all_variances_vector(t, prior=False)
             wandb.log({
                 'epoch': step+1,
                 'class_loss': class_loss,
                 'kl_loss': kl_loss,
                 'total_loss': total_loss,
                 'train_acc': train_acc,
-                'lr': self.optimizer.param_groups[0]['lr']
+                'lr': self.optimizer.param_groups[0]['lr'],
+                'all_var_mean': all_vars.mean().item(),
+                'all_var_var': all_vars.var().item(),
+                'grad_norm': avg_grad_norm
             })
             
             step=step+1
             print('| Epoch {:3d}, time={:5.1f}ms| Train: class_loss={:.3f}  kl_loss={:.3f} total_loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0)/xtrain.size(0),class_loss, kl_loss, total_loss,100*train_acc))
-
+        '''
         # Log final variances at the end of training
         final_vars = self.model.get_layer_variances(t, prior=False)
         wandb.log({
@@ -140,7 +144,7 @@ class Appr(ApprBase):
             'epoch': num_epochs_to_train,
             **{f'final_{k}': v for k, v in final_vars.items()}
         })
-        
+        '''       
         return step
 
 
@@ -159,6 +163,8 @@ class Appr(ApprBase):
         epoch_total_loss = 0
         total_hits = 0
         
+        grad_norm_sum = 0.0
+        grad_norm_count = 0
         # Loop batches
         for i in range(0,len(r),self.sbatch):
             if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
@@ -232,6 +238,14 @@ class Appr(ApprBase):
             # Backward
             self.optimizer.zero_grad()
             loss.backward()
+            # Compute grad norm for this batch
+            grad_norm = 0.0
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    grad_norm += p.grad.data.norm(2).item() ** 2
+            grad_norm = grad_norm ** 0.5
+            grad_norm_sum += grad_norm
+            grad_norm_count += 1
             torch.nn.utils.clip_grad_norm_(self.model.parameters(),self.clipgrad)
             self.optimizer.step()
             if self.lr_scheduling: 
@@ -242,8 +256,8 @@ class Appr(ApprBase):
 
             #computes the KL divergence, and logs the parts that correspond to the mean and variance
             epoch_kl_loss += kl_term.detach().data.item()
-            #epoch_kl_loss_mean = kl_term_mean.detach().data.item()
-            #epoch_kl_loss_var = kl_term_var.detach().data.item()
+            epoch_kl_loss_mean = kl_term_mean.detach().data.item()
+            epoch_kl_loss_var = kl_term_var.detach().data.item()
 
             '''
             #computes the Renyi divergence, and logs the parts that correspond to the mean and variance
@@ -251,8 +265,8 @@ class Appr(ApprBase):
             epoch_renyi_loss_mean = renyi_term_mean.detach().data.item()
             epoch_renyi_loss_var = renyi_term_var.detach().data.item()
             '''
-        #return kl_val/i, renyi_val/i, epoch_class_loss/i, epoch_kl_loss/i, epoch_kl_loss_mean/i, epoch_kl_loss_var/i, epoch_renyi_loss/i, epoch_renyi_loss_mean/i, epoch_renyi_loss_var/i, epoch_total_loss/i, total_hits/x.shape[0]
-        return epoch_class_loss/i, epoch_kl_loss/i, epoch_total_loss/i, total_hits/x.shape[0]
+        avg_grad_norm = grad_norm_sum / grad_norm_count if grad_norm_count > 0 else 0.0
+        return epoch_class_loss/i, epoch_kl_loss/i, epoch_kl_loss_mean/i, epoch_kl_loss_var/i, epoch_total_loss/i, total_hits/x.shape[0], avg_grad_norm
 
     def eval(self,t,x,y):
         with torch.no_grad():
