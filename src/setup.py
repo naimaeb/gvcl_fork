@@ -12,14 +12,14 @@ def get_args():
     parser=argparse.ArgumentParser(description='xxx')
     parser.add_argument('--sweep_name',type=str,help='sweep-id')
     parser.add_argument('--seed',type=int,default=0)
-    parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot','toy2d'],help='(default=%(default)s)')
+    parser.add_argument('--experiment',default='',type=str,required=True,choices=['mnist2','pmnist','cifar','mixture', 'easy-chasy', 'hard-chasy', 'smnist','omniglot','toy2d','tinyimagenet','core50','imagenet-r','imagenet-a','imagenet-subset'],help='(default=%(default)s)')
     parser.add_argument('--approach',default='',type=str,required=True,choices=['random','sgd','sgd-frozen','lwf','lfl','ewc','imm-mean','progressive','pathnet',
                                                                                 'imm-mode','sgd-restart', 'ewc2', 'ewc-film', 'fsvi', 'toy2d',
                                                                                 'joint','hat','hat-test', 'gvcl', 'vcl', 'vclf', 'gvclf'],help='(default=%(default)s)')
     parser.add_argument('--reg_type', default='',type=str,required=False,choices=['t_st', 't_st_mf', 't_st_k1', 'kl_g','re_g','kl_qg','re_qg'],help='(default=%(default)s)') 
     parser.add_argument('--q', default = 1.01, type=float, required=False)
     parser.add_argument('--v',type=int,default=1,help='(default=%(default)f)')
-    parser.add_argument('--use_deformed_likelihood', type=bool, default=False, help='Whether to use deformed likelihood for re_g regularization')
+    parser.add_argument('--use_deformed_likelihood', action='store_true', default=False, help='Whether to use deformed likelihood for re_g regularization')
     parser.add_argument('--output',default='',type=str,required=False,help='(default=%(default)s)')
     parser.add_argument('--nepochs', nargs='+', type=int, required=False, help='List of epochs for each task')
     parser.add_argument('--lr',default=-1,type=float,required=False,help='(default=%(default)f)')
@@ -59,6 +59,12 @@ def get_args():
         from dataloaders import omniglot as dataloader
     elif args.experiment=='toy2d':
         from dataloaders import toy_data as dataloader
+    elif args.experiment=='tinyimagenet':
+        from dataloaders import tinyimagenet as dataloader
+    elif args.experiment=='core50':
+        from dataloaders import core50 as dataloader
+    elif args.experiment in ['imagenet-r', 'imagenet-a', 'imagenet-subset']:
+        from dataloaders import imagenet as dataloader
 
     # Args -- Approach
     if args.approach=='random':
@@ -206,6 +212,33 @@ def get_args():
    
     elif 'toy2d' == args.experiment:
         from networks.gvcl_models import Toy2DNet as network
+    elif 'tinyimagenet' == args.experiment:
+        if 'vclf' in args.approach:
+            from networks.gvcl_models import TinyImageNetNetFiLM as network
+        elif 'vcl' in args.approach:
+            from networks.gvcl_models import TinyImageNetNetNoFiLM as network
+        elif 'fsvi' in args.approach:
+            from networks.gvcl_models import TinyImageNetNetNoFiLM as network
+        else:
+            from networks.gvcl_models import TinyImageNetNetNoFiLM as network
+    elif 'core50' == args.experiment:
+        if 'vclf' in args.approach:
+            from networks.gvcl_models import CORe50NetFiLM as network
+        elif 'vcl' in args.approach:
+            from networks.gvcl_models import CORe50NetNoFiLM as network
+        elif 'fsvi' in args.approach:
+            from networks.gvcl_models import CORe50NetNoFiLM as network
+        else:
+            from networks.gvcl_models import CORe50NetNoFiLM as network
+    elif args.experiment in ['imagenet-r', 'imagenet-a', 'imagenet-subset']:
+        if 'vclf' in args.approach:
+            from networks.gvcl_models import ImageNetNetFiLM as network
+        elif 'vcl' in args.approach:
+            from networks.gvcl_models import ImageNetNetNoFiLM as network
+        elif 'fsvi' in args.approach:
+            from networks.gvcl_models import ImageNetNetNoFiLM as network
+        else:
+            from networks.gvcl_models import ImageNetNetNoFiLM as network
             
 
     return args, network, approach, dataloader

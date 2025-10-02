@@ -29,7 +29,19 @@ else: print('[CUDA unavailable]'); sys.exit()
 # Load
 print('Load data...')
 default_path = root_path+"dat/" #pick this otherwise
-data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path)
+
+# Handle different dataloader parameters for new datasets
+if args.experiment == 'tinyimagenet':
+    data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path, num_tasks=40, classes_per_task=5)
+elif args.experiment == 'core50':
+    data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path, scenario='nc', num_tasks=10)
+elif args.experiment in ['imagenet-r', 'imagenet-a']:
+    variant = 'r' if args.experiment == 'imagenet-r' else 'a'
+    data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path, variant=variant, num_tasks=20, classes_per_task=10)
+elif args.experiment == 'imagenet-subset':
+    data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path, variant='subset', num_tasks=50, classes_per_task=20)
+else:
+    data,taskcla,inputsize=dataloader.get(seed=args.seed, path=default_path)
 if args.ntasks != -1:
     taskcla = taskcla[:args.ntasks]
 print('Input size =',inputsize,'\nTask info =',taskcla)
